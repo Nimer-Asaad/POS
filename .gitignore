@@ -1,0 +1,35 @@
+# Flutter
+.dart_tool/
+.packages
+.pub/
+build/
+
+# IDE
+.idea/
+.vscode/
+*.iml
+
+# Logs
+*.log
+
+# Metadata
+.metadata
+
+# Environment
+.env
+
+# Flutter plugins
+.flutter-plugins
+.flutter-plugins-dependencies
+
+# Android build
+android/.gradle/
+android/local.properties
+
+# Android SDK / Emulator (important)
+android/emulator/
+android/ndk/
+
+# Mac / Linux / Windows
+.DS_Store
+Thumbs.db
