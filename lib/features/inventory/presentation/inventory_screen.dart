@@ -181,6 +181,90 @@ class _InventoryScreenState extends ConsumerState<InventoryScreen> {
     return (cents / 100).toStringAsFixed(2);
   }
 
+  ({
+    int categoryCount,
+    int productCount,
+    int totalSellValueCents,
+    int totalCostValueCents,
+  }) _calculateInventoryStats(List<ProductModel> products) {
+    final inStockProducts = products.where((p) => p.qty > 0);
+    final categories = <String>{};
+    var productCount = 0;
+    var totalSellValueCents = 0;
+    var totalCostValueCents = 0;
+
+    for (final product in inStockProducts) {
+      categories.add(product.category.trim().toLowerCase());
+      productCount += 1;
+      totalSellValueCents += product.sellPrice * product.qty;
+      totalCostValueCents += product.costPrice * product.qty;
+    }
+
+    return (
+      categoryCount: categories.length,
+      productCount: productCount,
+      totalSellValueCents: totalSellValueCents,
+      totalCostValueCents: totalCostValueCents,
+    );
+  }
+
+  Widget _buildSummaryTile({
+    required BuildContext context,
+    required String title,
+    required String value,
+    required IconData icon,
+    Color? color,
+  }) {
+    final tileColor = color ?? Theme.of(context).colorScheme.primary;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      decoration: BoxDecoration(
+        color: Theme.of(context).colorScheme.surfaceContainerHighest,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(
+          color: Theme.of(context).dividerColor.withValues(alpha: 0.35),
+        ),
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 34,
+            height: 34,
+            decoration: BoxDecoration(
+              color: tileColor.withValues(alpha: 0.15),
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: Icon(icon, color: tileColor, size: 18),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  title,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: Theme.of(context).textTheme.labelMedium,
+                ),
+                const SizedBox(height: 3),
+                Text(
+                  value,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   Future<void> _showFilterDialog() async {
     final currentSorting = ref.read(sortingTypeProvider);
     final currentCategory = ref.read(categoryFilterProvider);
@@ -1423,6 +1507,7 @@ class _InventoryScreenState extends ConsumerState<InventoryScreen> {
 
     return Consumer(
       builder: (context, ref, child) {
+        final inventoryStatsAsync = ref.watch(productsStreamProvider);
         return GradientScaffold(
           appBar: AppTopBar(title: l10n.inventory),
           body: Center(
@@ -1432,6 +1517,77 @@ class _InventoryScreenState extends ConsumerState<InventoryScreen> {
                 padding: const EdgeInsets.all(24),
                 child: Column(
                   children: [
+                    AppCard(
+                      padding: const EdgeInsets.all(12),
+                      child: inventoryStatsAsync.when(
+                        data: (products) {
+                          final stats = _calculateInventoryStats(products);
+                          return Row(
+                            children: [
+                              Expanded(
+                                child: _buildSummaryTile(
+                                  context: context,
+                                  title: _t(context, 'عدد الأصناف', 'Item Types'),
+                                  value: stats.categoryCount.toString(),
+                                  icon: Icons.category_outlined,
+                                  color: AppColors.blue600,
+                                ),
+                              ),
+                              const SizedBox(width: 10),
+                              Expanded(
+                                child: _buildSummaryTile(
+                                  context: context,
+                                  title: _t(context, 'عدد المنتجات', 'Products Count'),
+                                  value: stats.productCount.toString(),
+                                  icon: Icons.inventory_2_outlined,
+                                  color: AppColors.green600,
+                                ),
+                              ),
+                              const SizedBox(width: 10),
+                              Expanded(
+                                child: _buildSummaryTile(
+                                  context: context,
+                                  title: _t(
+                                    context,
+                                    'إجمالي سعر البيع',
+                                    'Total Sell Value',
+                                  ),
+                                  value: formatMoneyCents(
+                                    stats.totalSellValueCents,
+                                  ),
+                                  icon: Icons.sell_outlined,
+                                  color: AppColors.yellow600,
+                                ),
+                              ),
+                              const SizedBox(width: 10),
+                              Expanded(
+                                child: _buildSummaryTile(
+                                  context: context,
+                                  title: _t(
+                                    context,
+                                    'إجمالي الجملة',
+                                    'Total Wholesale Value',
+                                  ),
+                                  value: formatMoneyCents(
+                                    stats.totalCostValueCents,
+                                  ),
+                                  icon: Icons.payments_outlined,
+                                  color: AppColors.purple600,
+                                ),
+                              ),
+                            ],
+                          );
+                        },
+                        loading: () => const Padding(
+                          padding: EdgeInsets.symmetric(vertical: 8),
+                          child: Center(child: CircularProgressIndicator()),
+                        ),
+                        error: (_, _) => Text(
+                          _t(context, 'تعذر تحميل الإحصائيات', 'Failed to load stats'),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
                     AppCard(
                       padding: const EdgeInsets.all(12),
                       child: Row(

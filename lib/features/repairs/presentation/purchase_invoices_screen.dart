@@ -302,11 +302,22 @@ class _PurchaseInvoicesScreenState
     );
   }
 
-  void _showPaymentDetails(PurchaseOrPayment payment) {
-    showDialog(
+  Future<void> _showPaymentDetails(PurchaseOrPayment payment) async {
+    final wasReversed = await showDialog<bool>(
       context: context,
       builder: (context) => _PaymentDetailsDialog(payment: payment),
     );
+
+    if (wasReversed == true) {
+      ref.invalidate(purchasesAndPaymentsProvider);
+
+      if (payment.supplierId != null) {
+        ref.invalidate(supplierPaymentsProvider(payment.supplierId!));
+        ref.invalidate(supplierTotalPaymentsProvider(payment.supplierId!));
+        ref.invalidate(supplierSummaryProvider(payment.supplierId!));
+        ref.invalidate(supplierPurchasesAndPaymentsProvider(payment.supplierId!));
+      }
+    }
   }
 }
 
@@ -969,7 +980,7 @@ class _InfoRow extends StatelessWidget {
 }
 
 // Payment Details Dialog
-class _PaymentDetailsDialog extends StatelessWidget {
+class _PaymentDetailsDialog extends ConsumerWidget {
   final PurchaseOrPayment payment;
 
   const _PaymentDetailsDialog({required this.payment});
@@ -979,7 +990,7 @@ class _PaymentDetailsDialog extends StatelessWidget {
   }
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     void printPayment() {
       showDialog(
         context: context,
@@ -1032,6 +1043,85 @@ class _PaymentDetailsDialog extends StatelessWidget {
           ],
         ),
       );
+    }
+
+    Future<void> reversePayment() async {
+      final confirm = await showDialog<bool>(
+        context: context,
+        builder: (dialogContext) => AlertDialog(
+          title: Text(_lang(context, 'إرجاع الدفعة', 'Reverse Payment')),
+          content: Text(
+            _lang(
+              context,
+              'هل أنت متأكد من إرجاع هذه الدفعة؟ سيتم خصمها من سجل الدفعات.',
+              'Are you sure you want to reverse this payment? It will be removed from payment records.',
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(false),
+              child: Text(_lang(context, 'إلغاء', 'Cancel')),
+            ),
+            ElevatedButton.icon(
+              onPressed: () => Navigator.of(dialogContext).pop(true),
+              icon: const Icon(Icons.undo),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.red,
+                foregroundColor: Colors.white,
+              ),
+              label: Text(_lang(context, 'إرجاع', 'Reverse')),
+            ),
+          ],
+        ),
+      );
+
+      if (confirm != true) return;
+
+      try {
+        final db = ref.read(dbProvider);
+        final success = await db.cancelPurchasePayment(payment.id);
+
+        if (!context.mounted) return;
+
+        if (!success) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(
+                _lang(
+                  context,
+                  'تعذر إرجاع الدفعة',
+                  'Failed to reverse payment',
+                ),
+              ),
+            ),
+          );
+          return;
+        }
+
+        Navigator.of(context).pop(true);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              _lang(context, 'تم إرجاع الدفعة بنجاح', 'Payment reversed successfully'),
+            ),
+            backgroundColor: Colors.green,
+          ),
+        );
+      } catch (_) {
+        if (!context.mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              _lang(
+                context,
+                'حدث خطأ أثناء إرجاع الدفعة',
+                'An error occurred while reversing payment',
+              ),
+            ),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
     }
 
     return Dialog(
@@ -1198,6 +1288,15 @@ class _PaymentDetailsDialog extends StatelessWidget {
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
+                  ElevatedButton.icon(
+                    onPressed: reversePayment,
+                    icon: const Icon(Icons.undo),
+                    label: Text(_lang(context, 'إرجاع', 'Reverse')),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.red,
+                      foregroundColor: Colors.white,
+                    ),
+                  ),
                   ElevatedButton.icon(
                     onPressed: printPayment,
                     icon: const Icon(Icons.print),

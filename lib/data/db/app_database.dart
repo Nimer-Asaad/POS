@@ -2438,6 +2438,40 @@ class AppDatabase extends _$AppDatabase {
     }
   }
 
+  /// Cancel a supplier payment and rollback linked purchase paid amount when present.
+  Future<bool> cancelPurchasePayment(String paymentId) async {
+    return transaction(() async {
+      final payment = await (select(
+        purchasePayments,
+      )..where((tbl) => tbl.id.equals(paymentId))).getSingleOrNull();
+
+      if (payment == null) {
+        return false;
+      }
+
+      if (payment.purchaseId != null) {
+        final purchase = await (select(
+          purchases,
+        )..where((tbl) => tbl.id.equals(payment.purchaseId!))).getSingleOrNull();
+
+        if (purchase != null) {
+          final nextPaid = (purchase.paid - payment.amount).clamp(0, purchase.total);
+          await (update(
+            purchases,
+          )..where((tbl) => tbl.id.equals(purchase.id))).write(
+            PurchasesCompanion(paid: Value(nextPaid)),
+          );
+        }
+      }
+
+      await (delete(
+        purchasePayments,
+      )..where((tbl) => tbl.id.equals(paymentId))).go();
+
+      return true;
+    });
+  }
+
   // ===== REPAIRS & DEBTS METHODS =====
 
   /// Create a new repair (Phase 1 - Received)
