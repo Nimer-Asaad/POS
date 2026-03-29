@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:intl/intl.dart';
 
 import '../../../core/ui/widgets/app_card.dart';
 import '../../../core/ui/widgets/app_top_bar.dart';
@@ -10,6 +11,7 @@ import '../../../design/app_colors.dart';
 import '../../../design/app_spacing.dart';
 import '../../../providers/db_provider.dart';
 import '../providers/supplier_providers.dart';
+import 'supplier_requests_screen.dart';
 
 String _lang(BuildContext context, String ar, String en) {
   return Localizations.localeOf(context).languageCode == 'ar' ? ar : en;
@@ -258,6 +260,30 @@ class _SuppliersScreenState extends ConsumerState<SuppliersScreen> {
                                     ],
                                   ),
                                 ],
+                              ),
+                              const SizedBox(height: 10),
+                              Align(
+                                alignment: Alignment.centerLeft,
+                                child: OutlinedButton.icon(
+                                  onPressed: () {
+                                    Navigator.of(context).pop();
+                                    Navigator.of(this.context).push(
+                                      MaterialPageRoute(
+                                        builder: (_) => SupplierRequestsScreen(
+                                          supplier: supplier,
+                                        ),
+                                      ),
+                                    );
+                                  },
+                                  icon: const Icon(Icons.playlist_add_check),
+                                  label: Text(
+                                    _lang(
+                                      context,
+                                      'طلبات الزبائن',
+                                      'Customer requests',
+                                    ),
+                                  ),
+                                ),
                               ),
                             ],
                           ),
@@ -636,9 +662,156 @@ class _SuppliersScreenState extends ConsumerState<SuppliersScreen> {
     );
   }
 
+  Future<void> _showAddMissingProductDialog() async {
+    final itemController = TextEditingController();
+    final quantityController = TextEditingController(text: '1');
+    final noteController = TextEditingController();
+    var isSaving = false;
+
+    await showDialog<void>(
+      context: context,
+      builder: (context) {
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            return AlertDialog(
+              title: Text(
+                _lang(
+                  context,
+                  'قطعة ناقصة (عامة)',
+                  'Global missing item',
+                ),
+              ),
+              content: SizedBox(
+                width: MediaQuery.of(context).size.width < 520
+                    ? MediaQuery.of(context).size.width * 0.9
+                    : 420,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    TextField(
+                      controller: itemController,
+                      decoration: InputDecoration(
+                        labelText: _lang(context, 'اسم القطعة *', 'Item name *'),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    TextField(
+                      controller: quantityController,
+                      keyboardType: TextInputType.number,
+                      decoration: InputDecoration(
+                        labelText: _lang(context, 'الكمية', 'Quantity'),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    TextField(
+                      controller: noteController,
+                      maxLines: 2,
+                      decoration: InputDecoration(
+                        labelText: _lang(
+                          context,
+                          'تفاصيل الزبون (اختياري)',
+                          'Customer details (optional)',
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: isSaving ? null : () => Navigator.of(context).pop(),
+                  child: Text(_lang(context, 'إلغاء', 'Cancel')),
+                ),
+                ElevatedButton(
+                  onPressed: isSaving
+                      ? null
+                      : () async {
+                          final itemName = itemController.text.trim();
+                          if (itemName.isEmpty) return;
+
+                          final quantity =
+                              int.tryParse(quantityController.text.trim()) ?? 1;
+
+                          setDialogState(() => isSaving = true);
+                          try {
+                            final db = ref.read(dbProvider);
+                            await db.createMissingProductNote(
+                              itemName: itemName,
+                              requestedQty: quantity,
+                              customerNote: noteController.text.trim().isEmpty
+                                  ? null
+                                  : noteController.text.trim(),
+                            );
+                            ref.invalidate(missingProductsNotesProvider);
+                            if (!mounted) return;
+                            Navigator.of(context).pop();
+                          } finally {
+                            setDialogState(() => isSaving = false);
+                          }
+                        },
+                  child: isSaving
+                      ? const SizedBox(
+                          width: 18,
+                          height: 18,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : Text(_lang(context, 'حفظ', 'Save')),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+  }
+
+  Future<void> _toggleMissingProductStatus(MissingProductNote note) async {
+    final db = ref.read(dbProvider);
+    final nextStatus = note.status == 'open' ? 'done' : 'open';
+    await db.updateMissingProductNoteStatus(id: note.id, status: nextStatus);
+    ref.invalidate(missingProductsNotesProvider);
+  }
+
+  Future<void> _deleteMissingProductNote(MissingProductNote note) async {
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text(_lang(context, 'حذف', 'Delete')),
+        content: Text(
+          _lang(
+            context,
+            'حذف القطعة "${note.itemName}"؟',
+            'Delete "${note.itemName}"?',
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: Text(_lang(context, 'إلغاء', 'Cancel')),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+            child: Text(_lang(context, 'حذف', 'Delete')),
+          ),
+        ],
+      ),
+    );
+
+    if (confirm != true) return;
+
+    final db = ref.read(dbProvider);
+    await db.deleteMissingProductNote(note.id);
+    ref.invalidate(missingProductsNotesProvider);
+  }
+
   @override
   Widget build(BuildContext context) {
     final suppliersAsync = ref.watch(suppliersProvider);
+    final missingStatus = ref.watch(missingProductsStatusFilterProvider);
+    final missingNotesAsync = ref.watch(
+      missingProductsNotesProvider(missingStatus),
+    );
 
     return GradientScaffold(
       appBar: AppTopBar(title: _lang(context, 'الموردون', 'Suppliers')),
@@ -647,9 +820,25 @@ class _SuppliersScreenState extends ConsumerState<SuppliersScreen> {
           constraints: const BoxConstraints(maxWidth: 1000),
           child: Padding(
             padding: const EdgeInsets.all(AppSpacing.lg),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
+            child: LayoutBuilder(
+              builder: (context, constraints) {
+                final isWide = constraints.maxWidth >= 900;
+
+                final missingPanel = _MissingProductsPanel(
+                  statusFilter: missingStatus,
+                  notesAsync: missingNotesAsync,
+                  onAddPressed: _showAddMissingProductDialog,
+                  onStatusChanged: (value) {
+                    ref.read(missingProductsStatusFilterProvider.notifier).state =
+                        value;
+                  },
+                  onToggleStatus: _toggleMissingProductStatus,
+                  onDelete: _deleteMissingProductNote,
+                );
+
+                final suppliersSection = Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
                 // Search and Add Button
                 Row(
                   children: [
@@ -765,8 +954,45 @@ class _SuppliersScreenState extends ConsumerState<SuppliersScreen> {
                                     ),
                                 ],
                               ),
-                              trailing: PopupMenuButton(
-                                itemBuilder: (context) => [
+                              trailing: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  IconButton(
+                                    tooltip: _lang(
+                                      context,
+                                      'طلبات الزبائن',
+                                      'Customer requests',
+                                    ),
+                                    onPressed: () => Navigator.of(context).push(
+                                      MaterialPageRoute(
+                                        builder: (_) => SupplierRequestsScreen(
+                                          supplier: supplier,
+                                        ),
+                                      ),
+                                    ),
+                                    icon: const Icon(Icons.playlist_add_check),
+                                  ),
+                                  PopupMenuButton(
+                                    itemBuilder: (context) => [
+                                  PopupMenuItem(
+                                    child: Text(
+                                      _lang(
+                                        context,
+                                        'طلبات الزبائن',
+                                        'Customer requests',
+                                      ),
+                                    ),
+                                    onTap: () => Future.delayed(
+                                      Duration.zero,
+                                      () => Navigator.of(context).push(
+                                        MaterialPageRoute(
+                                          builder: (_) => SupplierRequestsScreen(
+                                            supplier: supplier,
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+                                  ),
                                   PopupMenuItem(
                                     child: Text(
                                       _lang(context, 'تعديل', 'Edit'),
@@ -787,6 +1013,8 @@ class _SuppliersScreenState extends ConsumerState<SuppliersScreen> {
                                       Duration.zero,
                                       () => _deleteSupplier(supplier),
                                     ),
+                                  ),
+                                    ],
                                   ),
                                 ],
                               ),
@@ -824,10 +1052,198 @@ class _SuppliersScreenState extends ConsumerState<SuppliersScreen> {
                         const Center(child: CircularProgressIndicator()),
                   ),
                 ),
-              ],
+                  ],
+                );
+
+                if (isWide) {
+                  return Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      SizedBox(width: 260, child: missingPanel),
+                      const SizedBox(width: AppSpacing.md),
+                      Expanded(child: suppliersSection),
+                    ],
+                  );
+                }
+
+                return Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    missingPanel,
+                    const SizedBox(height: AppSpacing.lg),
+                    Expanded(child: suppliersSection),
+                  ],
+                );
+              },
             ),
           ),
         ),
+      ),
+    );
+  }
+}
+
+class _MissingProductsPanel extends StatelessWidget {
+  final String? statusFilter;
+  final AsyncValue<List<MissingProductNote>> notesAsync;
+  final VoidCallback onAddPressed;
+  final ValueChanged<String?> onStatusChanged;
+  final Future<void> Function(MissingProductNote note) onToggleStatus;
+  final Future<void> Function(MissingProductNote note) onDelete;
+
+  const _MissingProductsPanel({
+    required this.statusFilter,
+    required this.notesAsync,
+    required this.onAddPressed,
+    required this.onStatusChanged,
+    required this.onToggleStatus,
+    required this.onDelete,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return AppCard(
+      padding: const EdgeInsets.all(AppSpacing.sm),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Text(
+            _lang(context, 'النواقص (ملاحظات)', 'Missing items (notes)'),
+            style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+          ),
+          const SizedBox(height: 4),
+          Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Expanded(
+                child: DropdownButtonFormField<String?>(
+                  initialValue: statusFilter,
+                  decoration: InputDecoration(
+                    isDense: true,
+                    contentPadding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+                    border: const OutlineInputBorder(),
+                    labelText: _lang(context, 'الحالة', 'Status'),
+                  ),
+                  items: [
+                    DropdownMenuItem(
+                      value: null,
+                      child: Text(_lang(context, 'الكل', 'All')),
+                    ),
+                    DropdownMenuItem(
+                      value: 'open',
+                      child: Text(_lang(context, 'مفتوح', 'Open')),
+                    ),
+                    DropdownMenuItem(
+                      value: 'done',
+                      child: Text(_lang(context, 'تم', 'Done')),
+                    ),
+                  ],
+                  onChanged: onStatusChanged,
+                ),
+              ),
+              const SizedBox(width: 4),
+              SizedBox(
+                width: 32,
+                height: 32,
+                child: IconButton(
+                  onPressed: onAddPressed,
+                  tooltip: _lang(context, 'إضافة', 'Add'),
+                  icon: const Icon(Icons.add_circle_outline, size: 18),
+                  padding: EdgeInsets.zero,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 6),
+          Expanded(
+            child: notesAsync.when(
+              data: (notes) {
+                if (notes.isEmpty) {
+                  return SizedBox(
+                    child: Center(
+                      child: Text(
+                        _lang(context, 'ما في نواقص حالياً', 'No missing items yet'),
+                        style: const TextStyle(fontSize: 12),
+                      ),
+                    ),
+                  );
+                }
+
+                return ListView.separated(
+                  itemCount: notes.length,
+                  separatorBuilder: (_, __) => const Divider(height: 0.5),
+                  itemBuilder: (context, index) {
+                    final note = notes[index];
+                    final isDone = note.status == 'done';
+                    return ListTile(
+                      dense: true,
+                      contentPadding: const EdgeInsets.symmetric(
+                        horizontal: 4,
+                        vertical: 0,
+                      ),
+                      leading: SizedBox(
+                        width: 24,
+                        child: IconButton(
+                          onPressed: () => onToggleStatus(note),
+                          padding: EdgeInsets.zero,
+                          icon: Icon(
+                            isDone
+                                ? Icons.check_circle
+                                : Icons.radio_button_unchecked,
+                            color: isDone ? Colors.green : Colors.grey,
+                            size: 18,
+                          ),
+                        ),
+                      ),
+                      title: Text(
+                        '${note.itemName}',
+                        style: TextStyle(
+                          fontSize: 12,
+                          decoration: isDone
+                              ? TextDecoration.lineThrough
+                              : TextDecoration.none,
+                        ),
+                      ),
+                      subtitle: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          if (note.customerNote != null &&
+                              note.customerNote!.trim().isNotEmpty)
+                            Text(
+                              note.customerNote!,
+                              style: const TextStyle(fontSize: 10),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          Text(
+                            DateFormat('MM-dd').format(note.createdAt),
+                            style: TextStyle(
+                              color: Colors.grey.shade600,
+                              fontSize: 9,
+                            ),
+                          ),
+                        ],
+                      ),
+                      trailing: SizedBox(
+                        width: 24,
+                        child: IconButton(
+                          onPressed: () => onDelete(note),
+                          padding: EdgeInsets.zero,
+                          icon: const Icon(Icons.delete_outline, color: Colors.red, size: 16),
+                        ),
+                      ),
+                    );
+                  },
+                );
+              },
+              error: (error, stack) => Center(
+                child: Text('${_lang(context, 'خطأ', 'Error')}: $error'),
+              ),
+              loading: () => const Center(child: CircularProgressIndicator()),
+            ),
+          ),
+        ],
       ),
     );
   }

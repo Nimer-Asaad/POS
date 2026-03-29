@@ -228,6 +228,36 @@ class AppDatabase extends _$AppDatabase {
         }
       },
       beforeOpen: (details) async {
+        await customStatement('''
+          CREATE TABLE IF NOT EXISTS supplier_requested_products (
+            id TEXT PRIMARY KEY,
+            supplier_id TEXT NOT NULL,
+            product_name TEXT NOT NULL,
+            requested_qty INTEGER NOT NULL DEFAULT 1,
+            customer_note TEXT,
+            status TEXT NOT NULL DEFAULT 'pending',
+            created_at INTEGER NOT NULL,
+            updated_at INTEGER NOT NULL
+          )
+        ''');
+        await customStatement(
+          'CREATE INDEX IF NOT EXISTS idx_supplier_requested_products_supplier ON supplier_requested_products(supplier_id, status, created_at)',
+        );
+        await customStatement('''
+          CREATE TABLE IF NOT EXISTS missing_products_notes (
+            id TEXT PRIMARY KEY,
+            item_name TEXT NOT NULL,
+            requested_qty INTEGER NOT NULL DEFAULT 1,
+            customer_note TEXT,
+            status TEXT NOT NULL DEFAULT 'open',
+            created_at INTEGER NOT NULL,
+            updated_at INTEGER NOT NULL
+          )
+        ''');
+        await customStatement(
+          'CREATE INDEX IF NOT EXISTS idx_missing_products_notes_status ON missing_products_notes(status, created_at)',
+        );
+
         // Ensure missing columns exist for legacy databases.
         final supplierIdColumns = await customSelect(
           "SELECT name FROM pragma_table_info('products') WHERE name = 'supplier_id'",
@@ -1857,6 +1887,11 @@ class AppDatabase extends _$AppDatabase {
   Future<bool> deleteSupplier(String id) async {
     try {
       await transaction(() async {
+        await customStatement(
+          'DELETE FROM supplier_requested_products WHERE supplier_id = ?',
+          [id],
+        );
+
         // Delete all purchases and their items for this supplier
         final supplierPurchases = await (select(
           purchases,
@@ -1915,6 +1950,205 @@ class AppDatabase extends _$AppDatabase {
     return (select(
       suppliers,
     )..where((tbl) => tbl.id.equals(id))).getSingleOrNull();
+  }
+
+  Future<List<SupplierRequestedProduct>> getSupplierRequestedProducts(
+    String supplierId, {
+    String? status,
+  }) async {
+    var query = '''
+      SELECT
+        id,
+        supplier_id,
+        product_name,
+        requested_qty,
+        customer_note,
+        status,
+        created_at,
+        updated_at
+      FROM supplier_requested_products
+      WHERE supplier_id = ?
+    ''';
+
+    final variables = <Variable<Object>>[Variable.withString(supplierId)];
+    if (status != null && status.trim().isNotEmpty) {
+      query += ' AND status = ?';
+      variables.add(Variable.withString(status.trim()));
+    }
+
+    query += ' ORDER BY created_at DESC';
+
+    final rows = await customSelect(query, variables: variables).get();
+
+    return rows.map((row) {
+      final data = row.data;
+      return SupplierRequestedProduct(
+        id: data['id'] as String,
+        supplierId: data['supplier_id'] as String,
+        productName: data['product_name'] as String,
+        requestedQty: data['requested_qty'] as int? ?? 1,
+        customerNote: data['customer_note'] as String?,
+        status: data['status'] as String? ?? 'pending',
+        createdAt: DateTime.fromMillisecondsSinceEpoch(
+          data['created_at'] as int? ?? 0,
+        ),
+        updatedAt: DateTime.fromMillisecondsSinceEpoch(
+          data['updated_at'] as int? ?? 0,
+        ),
+      );
+    }).toList();
+  }
+
+  Future<String> createSupplierRequestedProduct({
+    required String supplierId,
+    required String productName,
+    required int requestedQty,
+    String? customerNote,
+  }) async {
+    final id = const Uuid().v4();
+    final nowMs = DateTime.now().millisecondsSinceEpoch;
+
+    await customInsert(
+      '''
+        INSERT INTO supplier_requested_products(
+          id,
+          supplier_id,
+          product_name,
+          requested_qty,
+          customer_note,
+          status,
+          created_at,
+          updated_at
+        ) VALUES (?, ?, ?, ?, ?, 'pending', ?, ?)
+      ''',
+      variables: [
+        Variable.withString(id),
+        Variable.withString(supplierId),
+        Variable.withString(productName.trim()),
+        Variable.withInt(requestedQty < 1 ? 1 : requestedQty),
+        Variable.withString(customerNote?.trim() ?? ''),
+        Variable.withInt(nowMs),
+        Variable.withInt(nowMs),
+      ],
+      updates: {},
+    );
+
+    return id;
+  }
+
+  Future<void> updateSupplierRequestedProductStatus({
+    required String id,
+    required String status,
+  }) async {
+    await customStatement(
+      '''
+        UPDATE supplier_requested_products
+        SET status = ?, updated_at = ?
+        WHERE id = ?
+      ''',
+      [status, DateTime.now().millisecondsSinceEpoch, id],
+    );
+  }
+
+  Future<void> deleteSupplierRequestedProduct(String id) async {
+    await customStatement(
+      'DELETE FROM supplier_requested_products WHERE id = ?',
+      [id],
+    );
+  }
+
+  Future<List<MissingProductNote>> getMissingProductNotes({
+    String? status,
+  }) async {
+    var query = '''
+      SELECT
+        id,
+        item_name,
+        requested_qty,
+        customer_note,
+        status,
+        created_at,
+        updated_at
+      FROM missing_products_notes
+    ''';
+
+    final variables = <Variable<Object>>[];
+    if (status != null && status.trim().isNotEmpty) {
+      query += ' WHERE status = ?';
+      variables.add(Variable.withString(status.trim()));
+    }
+
+    query += ' ORDER BY created_at DESC';
+
+    final rows = await customSelect(query, variables: variables).get();
+    return rows.map((row) {
+      final data = row.data;
+      return MissingProductNote(
+        id: data['id'] as String,
+        itemName: data['item_name'] as String,
+        requestedQty: data['requested_qty'] as int? ?? 1,
+        customerNote: data['customer_note'] as String?,
+        status: data['status'] as String? ?? 'open',
+        createdAt: DateTime.fromMillisecondsSinceEpoch(
+          data['created_at'] as int? ?? 0,
+        ),
+        updatedAt: DateTime.fromMillisecondsSinceEpoch(
+          data['updated_at'] as int? ?? 0,
+        ),
+      );
+    }).toList();
+  }
+
+  Future<String> createMissingProductNote({
+    required String itemName,
+    required int requestedQty,
+    String? customerNote,
+  }) async {
+    final id = const Uuid().v4();
+    final nowMs = DateTime.now().millisecondsSinceEpoch;
+
+    await customInsert(
+      '''
+        INSERT INTO missing_products_notes(
+          id,
+          item_name,
+          requested_qty,
+          customer_note,
+          status,
+          created_at,
+          updated_at
+        ) VALUES (?, ?, ?, ?, 'open', ?, ?)
+      ''',
+      variables: [
+        Variable.withString(id),
+        Variable.withString(itemName.trim()),
+        Variable.withInt(requestedQty < 1 ? 1 : requestedQty),
+        Variable.withString(customerNote?.trim() ?? ''),
+        Variable.withInt(nowMs),
+        Variable.withInt(nowMs),
+      ],
+      updates: {},
+    );
+
+    return id;
+  }
+
+  Future<void> updateMissingProductNoteStatus({
+    required String id,
+    required String status,
+  }) async {
+    await customStatement(
+      '''
+        UPDATE missing_products_notes
+        SET status = ?, updated_at = ?
+        WHERE id = ?
+      ''',
+      [status, DateTime.now().millisecondsSinceEpoch, id],
+    );
+  }
+
+  Future<void> deleteMissingProductNote(String id) async {
+    await customStatement('DELETE FROM missing_products_notes WHERE id = ?', [id]);
   }
 
   // Get all purchases from a specific supplier with their items
@@ -3312,11 +3546,23 @@ class AppDatabase extends _$AppDatabase {
 
       final saleItemRows = await saleItemsQuery.get();
       int saleProfit = 0;
+      final saleItemSummaries = <String>[];
       for (final row in saleItemRows) {
         final item = row.readTable(saleItems);
         final product = row.readTable(products);
         saleProfit += (item.unitPrice - product.costPrice) * item.qty;
+        saleItemSummaries.add('${item.qty}x ${product.name}');
       }
+
+      const maxItemsInDescription = 4;
+      final visibleItems = saleItemSummaries.take(maxItemsInDescription).toList();
+      final hiddenItemsCount = saleItemSummaries.length - visibleItems.length;
+      final itemsSummary = visibleItems.join(', ');
+      final saleDescription = itemsSummary.isEmpty
+          ? 'Payment: ${sale.paymentType}'
+          : hiddenItemsCount > 0
+              ? '$itemsSummary +$hiddenItemsCount more • Payment: ${sale.paymentType}'
+              : '$itemsSummary • Payment: ${sale.paymentType}';
 
       // Subtract discount from profit
       // The discount reduces the profit, not just the revenue
@@ -3338,7 +3584,7 @@ class AppDatabase extends _$AppDatabase {
         'amountCents': sale.total,
         'profitCents': saleProfit,
         'customerName': customerName,
-        'description': 'Payment: ${sale.paymentType}',
+        'description': saleDescription,
         'status': sale.status,
         'reversedAt': sale.reversedAt,
       });
@@ -3487,6 +3733,28 @@ class AppDatabase extends _$AppDatabase {
             .get();
 
     for (final service in servicesList) {
+      final providerName =
+          service.provider == 'other' &&
+              service.providerLabel != null &&
+              service.providerLabel!.trim().isNotEmpty
+          ? service.providerLabel!.trim()
+          : service.provider;
+
+      final serviceParts = <String>[
+        service.category,
+        service.serviceType,
+        providerName,
+      ];
+
+      final cleanedServiceNotes = service.notes?.trim();
+      if (cleanedServiceNotes != null && cleanedServiceNotes.isNotEmpty) {
+        serviceParts.add(cleanedServiceNotes);
+      }
+
+      final serviceDescription = serviceParts
+          .where((part) => part.trim().isNotEmpty)
+          .join(' • ');
+
       allTransactions.add({
         'id': service.id,
         'type': 'service',
@@ -3494,7 +3762,7 @@ class AppDatabase extends _$AppDatabase {
         'amountCents': service.amountCents,
         'profitCents': service.profitCents ?? 0,
         'customerName': service.customerName,
-        'description': '${service.category} - ${service.provider}',
+        'description': serviceDescription,
         'status': service.status,
         'reversedAt': service.reversedAt,
       });
@@ -3544,6 +3812,11 @@ class AppDatabase extends _$AppDatabase {
     for (final wallet in walletList) {
       // Assume 2% profit margin
       final profit = (wallet.amount * 0.02).round();
+      final cleanedWalletNotes = wallet.notes?.trim();
+      final walletDescription =
+          (cleanedWalletNotes != null && cleanedWalletNotes.isNotEmpty)
+          ? cleanedWalletNotes
+          : 'Cash drawer operation';
 
       allTransactions.add({
         'id': wallet.id,
@@ -3552,7 +3825,7 @@ class AppDatabase extends _$AppDatabase {
         'amountCents': wallet.amount,
         'profitCents': profit,
         'customerName': wallet.customerName,
-        'description': wallet.notes,
+        'description': walletDescription,
         'status': wallet.status,
         'reversedAt': wallet.reversedAt,
       });
@@ -4166,6 +4439,48 @@ class PurchaseOrPayment {
 
   bool get isPaid => paid >= total;
   int get balance => total - paid;
+}
+
+class SupplierRequestedProduct {
+  final String id;
+  final String supplierId;
+  final String productName;
+  final int requestedQty;
+  final String? customerNote;
+  final String status; // pending, ordered, received, cancelled
+  final DateTime createdAt;
+  final DateTime updatedAt;
+
+  const SupplierRequestedProduct({
+    required this.id,
+    required this.supplierId,
+    required this.productName,
+    required this.requestedQty,
+    this.customerNote,
+    required this.status,
+    required this.createdAt,
+    required this.updatedAt,
+  });
+}
+
+class MissingProductNote {
+  final String id;
+  final String itemName;
+  final int requestedQty;
+  final String? customerNote;
+  final String status; // open, done
+  final DateTime createdAt;
+  final DateTime updatedAt;
+
+  const MissingProductNote({
+    required this.id,
+    required this.itemName,
+    required this.requestedQty,
+    this.customerNote,
+    required this.status,
+    required this.createdAt,
+    required this.updatedAt,
+  });
 }
 
 extension DashboardQueries on AppDatabase {

@@ -146,6 +146,34 @@ final supplierTotalPaymentsProvider = FutureProvider.autoDispose
       return db.getTotalPaymentsBySupplier(supplierId);
     });
 
+typedef SupplierRequestsQuery = ({String supplierId, String? status});
+
+final supplierRequestsStatusFilterProvider =
+    StateProvider.family.autoDispose<String?, String>((ref, supplierId) {
+      return null;
+    });
+
+final supplierRequestedProductsProvider = FutureProvider.autoDispose
+    .family<List<SupplierRequestedProduct>, SupplierRequestsQuery>((
+      ref,
+      query,
+    ) async {
+      final db = ref.watch(dbProvider);
+      return db.getSupplierRequestedProducts(
+        query.supplierId,
+        status: query.status,
+      );
+    });
+
+final missingProductsStatusFilterProvider =
+    StateProvider.autoDispose<String?>((ref) => 'open');
+
+final missingProductsNotesProvider = FutureProvider.autoDispose
+    .family<List<MissingProductNote>, String?>((ref, status) async {
+      final db = ref.watch(dbProvider);
+      return db.getMissingProductNotes(status: status);
+    });
+
 // When a new payment is added, invalidate related providers
 final addPurchasePaymentProvider = FutureProvider.autoDispose
     .family<
