@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:drift/drift.dart' show Expression;
 import 'package:intl/intl.dart';
 import 'package:printing/printing.dart';
 
@@ -45,6 +46,13 @@ class _DebtsScreenState extends ConsumerState<DebtsScreen> {
   String? selectedCustomerName;
   String? selectedCustomerPhone;
 
+  String? _normalizeCustomerIdKey(String? key) {
+    final normalized = key?.trim();
+    if (normalized == null || normalized.isEmpty) return null;
+    if (normalized.startsWith('name:')) return null;
+    return normalized;
+  }
+
   @override
   Widget build(BuildContext context) {
     final debtsAsync = ref.watch(debtsGroupedProvider);
@@ -59,7 +67,9 @@ class _DebtsScreenState extends ConsumerState<DebtsScreen> {
       body: debtsAsync.when(
         data: (grouped) {
           if (grouped.isEmpty) {
-            return Center(child: Text(_lang(context, 'لا توجد ديون', 'No debts')));
+            return Center(
+              child: Text(_lang(context, 'لا توجد ديون', 'No debts')),
+            );
           }
 
           if (isMobile) {
@@ -98,10 +108,16 @@ class _DebtsScreenState extends ConsumerState<DebtsScreen> {
               constraints: BoxConstraints(minWidth: tableWidth),
               child: DataTable(
                 columns: [
-                  DataColumn(label: Text(_lang(context, 'اسم العميل', 'Customer Name'))),
+                  DataColumn(
+                    label: Text(_lang(context, 'اسم العميل', 'Customer Name')),
+                  ),
                   DataColumn(label: Text(_lang(context, 'الهاتف', 'Phone'))),
-                  DataColumn(label: Text(_lang(context, 'المبلغ المستحق', 'Total Due'))),
-                  DataColumn(label: Text(_lang(context, 'عدد الديون', '# Debts'))),
+                  DataColumn(
+                    label: Text(_lang(context, 'المبلغ المستحق', 'Total Due')),
+                  ),
+                  DataColumn(
+                    label: Text(_lang(context, 'عدد الديون', '# Debts')),
+                  ),
                   DataColumn(label: Text(_lang(context, 'التاريخ', 'Date'))),
                 ],
                 rows: grouped.entries.map((entry) {
@@ -440,9 +456,13 @@ class _DebtsScreenState extends ConsumerState<DebtsScreen> {
             ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold),
           ),
           const SizedBox(height: 8),
-          customerId != null
+          _normalizeCustomerIdKey(customerId) != null
               ? ref
-                    .watch(recentPaymentsProvider(customerId))
+                    .watch(
+                      recentPaymentsProvider(
+                        _normalizeCustomerIdKey(customerId)!,
+                      ),
+                    )
                     .when(
                       data: (payments) {
                         // Filter payments: show only those after the oldest current debt
@@ -647,11 +667,16 @@ class _DebtsScreenState extends ConsumerState<DebtsScreen> {
                                 : noteController.text.trim();
 
                             // Get total debts BEFORE payment
-                            final debtsBeforePayment = customerId != null
+                            final normalizedCustomerId =
+                                _normalizeCustomerIdKey(customerId);
+
+                            final debtsBeforePayment =
+                                normalizedCustomerId != null
                                 ? await (db.select(db.debts)
                                         ..where(
-                                          (tbl) =>
-                                              tbl.customerId.equals(customerId),
+                                          (tbl) => tbl.customerId.equals(
+                                            normalizedCustomerId,
+                                          ),
                                         )
                                         ..where(
                                           (tbl) => tbl.isSettled.equals(false),
@@ -659,7 +684,15 @@ class _DebtsScreenState extends ConsumerState<DebtsScreen> {
                                       .get()
                                 : await (db.select(db.debts)
                                         ..where(
-                                          (tbl) => tbl.customerId.isNull(),
+                                          (tbl) => Expression.or([
+                                            tbl.customerId.isNull(),
+                                            tbl.customerId.equals(''),
+                                          ]),
+                                        )
+                                        ..where(
+                                          (tbl) => tbl.customerName.equals(
+                                            customerName,
+                                          ),
                                         )
                                         ..where(
                                           (tbl) => tbl.isSettled.equals(false),
@@ -671,7 +704,8 @@ class _DebtsScreenState extends ConsumerState<DebtsScreen> {
 
                             final excessPayment = await db
                                 .receivePaymentApplyToDebts(
-                                  customerId: customerId,
+                                  customerId: normalizedCustomerId,
+                                  customerName: customerName,
                                   paymentAmount: amount,
                                   note: paymentNote,
                                 );
@@ -682,9 +716,9 @@ class _DebtsScreenState extends ConsumerState<DebtsScreen> {
 
                             // Invalidate and refresh the debts list
                             ref.invalidate(debtsGroupedProvider);
-                            if (customerId != null) {
+                            if (normalizedCustomerId != null) {
                               ref.invalidate(
-                                recentPaymentsProvider(customerId),
+                                recentPaymentsProvider(normalizedCustomerId),
                               );
                             }
 

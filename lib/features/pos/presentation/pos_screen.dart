@@ -396,14 +396,15 @@ class _PosScreenState extends ConsumerState<PosScreen> {
         final notifier = ref.read(
           serviceTransactionControllerProvider.notifier,
         );
-        
+
         // Get customer name if customer is selected
         String? selectedCustomerName;
         if (selectedCustomerId != null) {
           try {
-            final customer = await (db.select(db.customers)
-                  ..where((tbl) => tbl.id.equals(selectedCustomerId)))
-                .getSingleOrNull();
+            final customer =
+                await (db.select(db.customers)
+                      ..where((tbl) => tbl.id.equals(selectedCustomerId)))
+                    .getSingleOrNull();
             if (customer != null) {
               selectedCustomerName = customer.name;
             }
@@ -411,21 +412,19 @@ class _PosScreenState extends ConsumerState<PosScreen> {
             // Ignore errors getting customer name
           }
         }
-        
-        await Future.wait(
-          _serviceItems.map(
-            (item) => notifier.addServiceTransaction(
-              category: item.category,
-              provider: item.provider,
-              providerLabel: item.providerLabel,
-              customerName: item.customerName ?? selectedCustomerName,
-              amountCents: item.amountCents,
-              profitCents: item.profitCents,
-              notes: item.notes,
-              saleId: saleId,
-            ),
-          ),
-        );
+
+        for (final item in _serviceItems) {
+          await notifier.addServiceTransaction(
+            category: item.category,
+            provider: item.provider,
+            providerLabel: item.providerLabel,
+            customerName: item.customerName ?? selectedCustomerName,
+            amountCents: item.amountCents,
+            profitCents: item.profitCents,
+            notes: item.notes,
+            saleId: saleId,
+          );
+        }
       }
 
       try {
@@ -904,7 +903,11 @@ class _PosScreenState extends ConsumerState<PosScreen> {
                           selectedCustomerId == null
                               ? l10n.selectCustomer
                               : l10n.customer,
-                          style: TextStyle(color: Theme.of(context).textTheme.bodyMedium?.color),
+                          style: TextStyle(
+                            color: Theme.of(
+                              context,
+                            ).textTheme.bodyMedium?.color,
+                          ),
                           overflow: TextOverflow.ellipsis,
                         ),
                       ),
@@ -977,12 +980,16 @@ class _PosScreenState extends ConsumerState<PosScreen> {
                   child: Container(
                     padding: const EdgeInsets.all(8),
                     decoration: BoxDecoration(
-                      color: Theme.of(context).colorScheme.error.withOpacity(0.12),
+                      color: Theme.of(
+                        context,
+                      ).colorScheme.error.withOpacity(0.12),
                       borderRadius: BorderRadius.circular(8),
                     ),
                     child: Text(
                       'Error loading customers',
-                      style: TextStyle(color: Theme.of(context).colorScheme.error),
+                      style: TextStyle(
+                        color: Theme.of(context).colorScheme.error,
+                      ),
                     ),
                   ),
                 ),
@@ -1004,7 +1011,9 @@ class _PosScreenState extends ConsumerState<PosScreen> {
                         const SizedBox(height: 8),
                         Text(
                           _lang(context, 'السلة فارغة', 'Cart is empty'),
-                          style: TextStyle(color: Theme.of(context).textTheme.bodySmall?.color),
+                          style: TextStyle(
+                            color: Theme.of(context).textTheme.bodySmall?.color,
+                          ),
                         ),
                       ],
                     ),

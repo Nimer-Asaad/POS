@@ -938,9 +938,13 @@ class AppDatabase extends _$AppDatabase {
   }
 
   Future<SalesSummary> getSalesSummary(DateTime from, DateTime to) async {
-    final rows = await (select(
-      sales,
-    )..where((tbl) => tbl.createdAt.isBetweenValues(from, to))).get();
+    final rows =
+        await (select(sales)..where(
+              (tbl) =>
+                  tbl.createdAt.isBetweenValues(from, to) &
+                  tbl.status.equals('normal'),
+            ))
+            .get();
 
     var totalAmount = 0;
     var cashTotal = 0;
@@ -979,10 +983,14 @@ class AppDatabase extends _$AppDatabase {
   }
 
   Future<ProfitSummary> getProfitSummary(DateTime from, DateTime to) async {
-    final query = select(saleItems).join([
-      innerJoin(sales, sales.id.equalsExp(saleItems.saleId)),
-      innerJoin(products, products.id.equalsExp(saleItems.productId)),
-    ])..where(sales.createdAt.isBetweenValues(from, to));
+    final query =
+        select(saleItems).join([
+          innerJoin(sales, sales.id.equalsExp(saleItems.saleId)),
+          innerJoin(products, products.id.equalsExp(saleItems.productId)),
+        ])..where(
+          sales.createdAt.isBetweenValues(from, to) &
+              sales.status.equals('normal'),
+        );
 
     final rows = await query.get();
     var productsProfit = 0;
@@ -993,18 +1001,26 @@ class AppDatabase extends _$AppDatabase {
     }
 
     // Subtract all discounts from the profit
-    final salesList = await (select(sales)
-          ..where((s) => s.createdAt.isBetweenValues(from, to)))
-        .get();
+    final salesList =
+        await (select(sales)..where(
+              (s) =>
+                  s.createdAt.isBetweenValues(from, to) &
+                  s.status.equals('normal'),
+            ))
+            .get();
     final totalDiscounts = salesList.fold<int>(
       0,
       (sum, sale) => sum + sale.discount,
     );
     productsProfit -= totalDiscounts;
 
-    final serviceRows = await (select(
-      serviceTransactions,
-    )..where((tbl) => tbl.createdAt.isBetweenValues(from, to))).get();
+    final serviceRows =
+        await (select(serviceTransactions)..where(
+              (tbl) =>
+                  tbl.createdAt.isBetweenValues(from, to) &
+                  tbl.status.equals('normal'),
+            ))
+            .get();
     final servicesProfit = serviceRows.fold<int>(
       0,
       (sum, tx) => sum + (tx.profitCents ?? 0),
@@ -1075,7 +1091,11 @@ class AppDatabase extends _$AppDatabase {
     final endOfDay = startOfDay.add(const Duration(days: 1));
 
     return (select(serviceTransactions)
-          ..where((tbl) => tbl.createdAt.isBetweenValues(startOfDay, endOfDay))
+          ..where(
+            (tbl) =>
+                tbl.createdAt.isBetweenValues(startOfDay, endOfDay) &
+                tbl.status.equals('normal'),
+          )
           ..orderBy([
             (tbl) => OrderingTerm(
               expression: tbl.createdAt,
@@ -2288,19 +2308,19 @@ class AppDatabase extends _$AppDatabase {
       await delete(serviceDailyInventory).go();
       await delete(serviceTransactions).go();
       await delete(cashDrawerEvents).go();
-      
+
       // Clear settlement and payment tables
       await delete(settlements).go();
       await delete(purchasePayments).go();
       await delete(repairPartOrders).go();
-      
+
       // Clear recharge and wallet tables
       await delete(programTopups).go();
       await delete(farahnetPayments).go();
       await delete(telelinkOperations).go();
       await delete(walletOperations).go();
       await delete(electricityRecharges).go();
-      
+
       // Clear main sales and repair data
       await delete(saleItems).go();
       await delete(sales).go();
@@ -2310,14 +2330,14 @@ class AppDatabase extends _$AppDatabase {
       await delete(payments).go();
       await delete(debts).go();
       await delete(customers).go();
-      
+
       // Clear product and purchase data
       await delete(purchaseInvoiceItems).go();
       await delete(purchaseInvoices).go();
       await delete(purchaseItems).go();
       await delete(purchases).go();
       await delete(products).go();
-      
+
       // Clear suppliers last (other tables might reference it)
       await delete(suppliers).go();
     });
@@ -2450,17 +2470,18 @@ class AppDatabase extends _$AppDatabase {
       }
 
       if (payment.purchaseId != null) {
-        final purchase = await (select(
-          purchases,
-        )..where((tbl) => tbl.id.equals(payment.purchaseId!))).getSingleOrNull();
+        final purchase =
+            await (select(purchases)
+                  ..where((tbl) => tbl.id.equals(payment.purchaseId!)))
+                .getSingleOrNull();
 
         if (purchase != null) {
-          final nextPaid = (purchase.paid - payment.amount).clamp(0, purchase.total);
-          await (update(
-            purchases,
-          )..where((tbl) => tbl.id.equals(purchase.id))).write(
-            PurchasesCompanion(paid: Value(nextPaid)),
+          final nextPaid = (purchase.paid - payment.amount).clamp(
+            0,
+            purchase.total,
           );
+          await (update(purchases)..where((tbl) => tbl.id.equals(purchase.id)))
+              .write(PurchasesCompanion(paid: Value(nextPaid)));
         }
       }
 
@@ -2914,7 +2935,14 @@ class AppDatabase extends _$AppDatabase {
 
     final grouped = <String?, List<Debt>>{};
     for (final debt in allDebts) {
-      final key = debt.customerId;
+      final rawCustomerId = debt.customerId?.trim();
+      final normalizedCustomerId =
+          (rawCustomerId == null || rawCustomerId.isEmpty)
+          ? null
+          : rawCustomerId;
+      final key =
+          normalizedCustomerId ??
+          'name:${debt.customerName.trim().toLowerCase()}';
       if (!grouped.containsKey(key)) {
         grouped[key] = [];
       }
@@ -2927,6 +2955,7 @@ class AppDatabase extends _$AppDatabase {
   /// Returns the remaining payment amount after all debts are applied
   Future<int> receivePaymentApplyToDebts({
     required String? customerId,
+    String? customerName,
     required int paymentAmount,
     String? note,
   }) {
@@ -2936,10 +2965,24 @@ class AppDatabase extends _$AppDatabase {
       // Get unsettled debts for this customer, oldest first
       var query = select(debts)..where((tbl) => tbl.isSettled.equals(false));
 
-      if (customerId != null) {
-        query = query..where((tbl) => tbl.customerId.equals(customerId));
+      final normalizedCustomerId = customerId?.trim();
+      if (normalizedCustomerId != null && normalizedCustomerId.isNotEmpty) {
+        query = query
+          ..where((tbl) => tbl.customerId.equals(normalizedCustomerId));
       } else {
-        query = query..where((tbl) => tbl.customerId.isNull());
+        if (customerName != null && customerName.trim().isNotEmpty) {
+          final normalizedName = customerName.trim();
+          query = query
+            ..where(
+              (tbl) => tbl.customerId.isNull() | tbl.customerId.equals(''),
+            )
+            ..where((tbl) => tbl.customerName.equals(normalizedName));
+        } else {
+          query = query
+            ..where(
+              (tbl) => tbl.customerId.isNull() | tbl.customerId.equals(''),
+            );
+        }
       }
 
       query = query
@@ -3060,9 +3103,9 @@ class AppDatabase extends _$AppDatabase {
   /// Count devices currently in maintenance (not delivered/completed)
   /// This counts ALL repairs regardless of creation date
   Future<int> getCurrentMaintenanceDevicesCount() async {
-    final count = await (select(repairs)
-          ..where((r) => r.status.isNotValue('Delivered')))
-        .get();
+    final count = await (select(
+      repairs,
+    )..where((r) => r.status.isNotValue('Delivered'))).get();
     return count.length;
   }
 
@@ -3080,8 +3123,8 @@ class AppDatabase extends _$AppDatabase {
       final repairParts = await getRepairParts(repair.id);
       int partsCost = 0;
       for (final partWithProduct in repairParts) {
-        partsCost += partWithProduct.repairPart.qty *
-            partWithProduct.product.costPrice;
+        partsCost +=
+            partWithProduct.repairPart.qty * partWithProduct.product.costPrice;
       }
 
       // Profit = revenue - cost
@@ -3094,12 +3137,14 @@ class AppDatabase extends _$AppDatabase {
 
   /// Get repair profit for a specific date range (only normal, non-reversed transactions)
   Future<int> getRepairsProfit(DateTime from, DateTime to) async {
-    final repairsList = await (select(repairs)
-          ..where((r) => 
-            r.createdAt.isBetweenValues(from, to) & 
-            r.transactionStatus.equals('normal')))
-        .get();
-    
+    final repairsList =
+        await (select(repairs)..where(
+              (r) =>
+                  r.createdAt.isBetweenValues(from, to) &
+                  r.transactionStatus.equals('normal'),
+            ))
+            .get();
+
     int totalProfit = 0;
 
     for (final repair in repairsList) {
@@ -3110,8 +3155,8 @@ class AppDatabase extends _$AppDatabase {
       final repairParts = await getRepairParts(repair.id);
       int partsCost = 0;
       for (final partWithProduct in repairParts) {
-        partsCost += partWithProduct.repairPart.qty *
-            partWithProduct.product.costPrice;
+        partsCost +=
+            partWithProduct.repairPart.qty * partWithProduct.product.costPrice;
       }
 
       // Profit = revenue - cost
@@ -3128,11 +3173,13 @@ class AppDatabase extends _$AppDatabase {
     DateTime to,
   ) async {
     // 1. Calculate sales profit (only normal, non-reversed transactions)
-    final salesList = await (select(sales)
-          ..where((s) => 
-            s.createdAt.isBetweenValues(from, to) & 
-            s.status.equals('normal')))
-        .get();
+    final salesList =
+        await (select(sales)..where(
+              (s) =>
+                  s.createdAt.isBetweenValues(from, to) &
+                  s.status.equals('normal'),
+            ))
+            .get();
 
     int totalSalesBeforeDiscount = 0;
     int totalDiscounts = 0;
@@ -3162,12 +3209,14 @@ class AppDatabase extends _$AppDatabase {
     final repairsProfit = await getRepairsProfit(from, to);
 
     // 3. Calculate service profits (only normal, non-reversed transactions)
-    final serviceRows = await (select(serviceTransactions)
-          ..where((tbl) => 
-            tbl.createdAt.isBetweenValues(from, to) & 
-            tbl.status.equals('normal')))
-        .get();
-    
+    final serviceRows =
+        await (select(serviceTransactions)..where(
+              (tbl) =>
+                  tbl.createdAt.isBetweenValues(from, to) &
+                  tbl.status.equals('normal'),
+            ))
+            .get();
+
     int servicesProfit = 0;
     int servicesRevenue = 0;
     for (final service in serviceRows) {
@@ -3176,11 +3225,13 @@ class AppDatabase extends _$AppDatabase {
     }
 
     // 4. Calculate other operations profits (only normal, non-reversed transactions)
-    final telelinkList = await (select(telelinkOperations)
-          ..where((t) => 
-            t.operatedAt.isBetweenValues(from, to) & 
-            t.status.equals('normal')))
-        .get();
+    final telelinkList =
+        await (select(telelinkOperations)..where(
+              (t) =>
+                  t.operatedAt.isBetweenValues(from, to) &
+                  t.status.equals('normal'),
+            ))
+            .get();
     int telelinkRevenue = 0;
     int telelinkProfit = 0;
     for (final op in telelinkList) {
@@ -3188,11 +3239,13 @@ class AppDatabase extends _$AppDatabase {
       telelinkProfit += (op.amount * 0.02).round();
     }
 
-    final electricityList = await (select(electricityRecharges)
-          ..where((e) => 
-            e.operatedAt.isBetweenValues(from, to) & 
-            e.status.equals('normal')))
-        .get();
+    final electricityList =
+        await (select(electricityRecharges)..where(
+              (e) =>
+                  e.operatedAt.isBetweenValues(from, to) &
+                  e.status.equals('normal'),
+            ))
+            .get();
     int electricityRevenue = 0;
     int electricityProfit = 0;
     for (final op in electricityList) {
@@ -3200,7 +3253,8 @@ class AppDatabase extends _$AppDatabase {
       electricityProfit += (op.amount * 0.015).round();
     }
 
-    final totalProfit = salesProfit +
+    final totalProfit =
+        salesProfit +
         repairsProfit +
         servicesProfit +
         telelinkProfit +
@@ -3213,15 +3267,19 @@ class AppDatabase extends _$AppDatabase {
       netSalesRevenue: netSalesRevenue,
       costOfGoodsSold: totalCostOfGoodsSold,
       salesProfit: salesProfit,
-      
+
       // Other profits
       repairsProfit: repairsProfit,
       servicesProfit: servicesProfit,
       telelinkProfit: telelinkProfit,
       electricityProfit: electricityProfit,
-      
+
       // Totals
-      totalRevenue: netSalesRevenue + servicesRevenue + telelinkRevenue + electricityRevenue,
+      totalRevenue:
+          netSalesRevenue +
+          servicesRevenue +
+          telelinkRevenue +
+          electricityRevenue,
       totalProfit: totalProfit,
     );
   }
@@ -3235,15 +3293,16 @@ class AppDatabase extends _$AppDatabase {
     final List<Map<String, dynamic>> allTransactions = [];
 
     // 1. Sales
-    final salesList = await (select(sales)
-          ..where((s) => s.createdAt.isBetweenValues(from, to))
-          ..orderBy([
-            (s) => OrderingTerm(
-              expression: s.createdAt,
-              mode: OrderingMode.desc,
-            ),
-          ]))
-        .get();
+    final salesList =
+        await (select(sales)
+              ..where((s) => s.createdAt.isBetweenValues(from, to))
+              ..orderBy([
+                (s) => OrderingTerm(
+                  expression: s.createdAt,
+                  mode: OrderingMode.desc,
+                ),
+              ]))
+            .get();
 
     for (final sale in salesList) {
       // Calculate profit from sale items
@@ -3266,9 +3325,9 @@ class AppDatabase extends _$AppDatabase {
       // Get customer name if exists
       String? customerName;
       if (sale.customerId != null) {
-        final customer = await (select(customers)
-              ..where((c) => c.id.equals(sale.customerId!)))
-            .getSingleOrNull();
+        final customer = await (select(
+          customers,
+        )..where((c) => c.id.equals(sale.customerId!))).getSingleOrNull();
         customerName = customer?.name;
       }
 
@@ -3286,29 +3345,30 @@ class AppDatabase extends _$AppDatabase {
     }
 
     // 2. Repairs (completed/delivered only)
-    final repairsList = await (select(repairs)
-          ..where(
-            (r) =>
-                r.createdAt.isBetweenValues(from, to) &
-                (r.status.equals('Ready') | r.status.equals('Delivered')),
-          )
-          ..orderBy([
-            (r) => OrderingTerm(
-              expression: r.createdAt,
-              mode: OrderingMode.desc,
-            ),
-          ]))
-        .get();
+    final repairsList =
+        await (select(repairs)
+              ..where(
+                (r) =>
+                    r.createdAt.isBetweenValues(from, to) &
+                    (r.status.equals('Ready') | r.status.equals('Delivered')),
+              )
+              ..orderBy([
+                (r) => OrderingTerm(
+                  expression: r.createdAt,
+                  mode: OrderingMode.desc,
+                ),
+              ]))
+            .get();
 
     for (final repair in repairsList) {
       final netRevenue = repair.finalCost - repair.discount;
-      
+
       // Calculate parts cost
       final repairParts = await getRepairParts(repair.id);
       int partsCost = 0;
       for (final partWithProduct in repairParts) {
-        partsCost += partWithProduct.repairPart.qty *
-            partWithProduct.product.costPrice;
+        partsCost +=
+            partWithProduct.repairPart.qty * partWithProduct.product.costPrice;
       }
 
       final profit = netRevenue - partsCost;
@@ -3327,20 +3387,21 @@ class AppDatabase extends _$AppDatabase {
     }
 
     // 3. TeleLink Operations
-    final telelinkList = await (select(telelinkOperations)
-          ..where((t) => t.operatedAt.isBetweenValues(from, to))
-          ..orderBy([
-            (t) => OrderingTerm(
-              expression: t.operatedAt,
-              mode: OrderingMode.desc,
-            ),
-          ]))
-        .get();
+    final telelinkList =
+        await (select(telelinkOperations)
+              ..where((t) => t.operatedAt.isBetweenValues(from, to))
+              ..orderBy([
+                (t) => OrderingTerm(
+                  expression: t.operatedAt,
+                  mode: OrderingMode.desc,
+                ),
+              ]))
+            .get();
 
     for (final telelink in telelinkList) {
       // Assume 2% profit margin for TeleLink
       final profit = (telelink.amount * 0.02).round();
-      
+
       allTransactions.add({
         'id': telelink.id,
         'type': 'telelink',
@@ -3355,20 +3416,21 @@ class AppDatabase extends _$AppDatabase {
     }
 
     // 4. Electricity Recharges
-    final electricityList = await (select(electricityRecharges)
-          ..where((e) => e.operatedAt.isBetweenValues(from, to))
-          ..orderBy([
-            (e) => OrderingTerm(
-              expression: e.operatedAt,
-              mode: OrderingMode.desc,
-            ),
-          ]))
-        .get();
+    final electricityList =
+        await (select(electricityRecharges)
+              ..where((e) => e.operatedAt.isBetweenValues(from, to))
+              ..orderBy([
+                (e) => OrderingTerm(
+                  expression: e.operatedAt,
+                  mode: OrderingMode.desc,
+                ),
+              ]))
+            .get();
 
     for (final electricity in electricityList) {
       // Assume 1.5% profit margin for electricity
       final profit = (electricity.amount * 0.015).round();
-      
+
       allTransactions.add({
         'id': electricity.id,
         'type': 'electricity',
@@ -3376,27 +3438,29 @@ class AppDatabase extends _$AppDatabase {
         'amountCents': electricity.amount,
         'profitCents': profit,
         'customerName': electricity.customerName,
-        'description': '${electricity.operationType} - ${electricity.subscriptionNumber ?? ""}',
+        'description':
+            '${electricity.operationType} - ${electricity.subscriptionNumber ?? ""}',
         'status': electricity.status,
         'reversedAt': electricity.reversedAt,
       });
     }
 
     // 5. Program Topups
-    final topupsList = await (select(programTopups)
-          ..where((p) => p.operatedAt.isBetweenValues(from, to))
-          ..orderBy([
-            (p) => OrderingTerm(
-              expression: p.operatedAt,
-              mode: OrderingMode.desc,
-            ),
-          ]))
-        .get();
+    final topupsList =
+        await (select(programTopups)
+              ..where((p) => p.operatedAt.isBetweenValues(from, to))
+              ..orderBy([
+                (p) => OrderingTerm(
+                  expression: p.operatedAt,
+                  mode: OrderingMode.desc,
+                ),
+              ]))
+            .get();
 
     for (final topup in topupsList) {
       // Assume 2% profit margin for program topups
       final profit = (topup.amount * 0.02).round();
-      
+
       allTransactions.add({
         'id': topup.id,
         'type': 'programTopup',
@@ -3411,15 +3475,16 @@ class AppDatabase extends _$AppDatabase {
     }
 
     // 6. Service Transactions
-    final servicesList = await (select(serviceTransactions)
-          ..where((s) => s.createdAt.isBetweenValues(from, to))
-          ..orderBy([
-            (s) => OrderingTerm(
-              expression: s.createdAt,
-              mode: OrderingMode.desc,
-            ),
-          ]))
-        .get();
+    final servicesList =
+        await (select(serviceTransactions)
+              ..where((s) => s.createdAt.isBetweenValues(from, to))
+              ..orderBy([
+                (s) => OrderingTerm(
+                  expression: s.createdAt,
+                  mode: OrderingMode.desc,
+                ),
+              ]))
+            .get();
 
     for (final service in servicesList) {
       allTransactions.add({
@@ -3436,20 +3501,21 @@ class AppDatabase extends _$AppDatabase {
     }
 
     // 7. Farahnet Payments
-    final farahnetList = await (select(farahnetPayments)
-          ..where((f) => f.createdAt.isBetweenValues(from, to))
-          ..orderBy([
-            (f) => OrderingTerm(
-              expression: f.createdAt,
-              mode: OrderingMode.desc,
-            ),
-          ]))
-        .get();
+    final farahnetList =
+        await (select(farahnetPayments)
+              ..where((f) => f.createdAt.isBetweenValues(from, to))
+              ..orderBy([
+                (f) => OrderingTerm(
+                  expression: f.createdAt,
+                  mode: OrderingMode.desc,
+                ),
+              ]))
+            .get();
 
     for (final farahnet in farahnetList) {
       // Profit is already calculated in the table
       final profit = farahnet.profitAmount;
-      
+
       allTransactions.add({
         'id': farahnet.id,
         'type': 'farahnet',
@@ -3464,20 +3530,21 @@ class AppDatabase extends _$AppDatabase {
     }
 
     // 8. Wallet Operations
-    final walletList = await (select(walletOperations)
-          ..where((w) => w.operatedAt.isBetweenValues(from, to))
-          ..orderBy([
-            (w) => OrderingTerm(
-              expression: w.operatedAt,
-              mode: OrderingMode.desc,
-            ),
-          ]))
-        .get();
+    final walletList =
+        await (select(walletOperations)
+              ..where((w) => w.operatedAt.isBetweenValues(from, to))
+              ..orderBy([
+                (w) => OrderingTerm(
+                  expression: w.operatedAt,
+                  mode: OrderingMode.desc,
+                ),
+              ]))
+            .get();
 
     for (final wallet in walletList) {
       // Assume 2% profit margin
       final profit = (wallet.amount * 0.02).round();
-      
+
       allTransactions.add({
         'id': wallet.id,
         'type': 'wallet',
@@ -3503,72 +3570,234 @@ class AppDatabase extends _$AppDatabase {
 
   /// Reverse a transaction by ID and type
   /// Returns true if successful, false if already reversed or not found
-  Future<bool> reverseTransaction(String transactionId, String transactionType) async {
+  Future<bool> reverseTransaction(
+    String transactionId,
+    String transactionType,
+  ) async {
     final now = DateTime.now();
-    
+
     try {
-      switch (transactionType) {
-        case 'sale':
-          final sale = await (select(sales)..where((s) => s.id.equals(transactionId))).getSingleOrNull();
-          if (sale == null || sale.status == 'reversed') return false;
-          await (update(sales)..where((s) => s.id.equals(transactionId)))
-              .write(SalesCompanion(status: const Value('reversed'), reversedAt: Value(now)));
-          break;
-        
-        case 'repair':
-          final repair = await (select(repairs)..where((r) => r.id.equals(transactionId))).getSingleOrNull();
-          if (repair == null || repair.transactionStatus == 'reversed') return false;
-          await (update(repairs)..where((r) => r.id.equals(transactionId)))
-              .write(RepairsCompanion(transactionStatus: const Value('reversed'), reversedAt: Value(now)));
-          break;
-        
-        case 'service':
-          final service = await (select(serviceTransactions)..where((s) => s.id.equals(transactionId))).getSingleOrNull();
-          if (service == null || service.status == 'reversed') return false;
-          await (update(serviceTransactions)..where((s) => s.id.equals(transactionId)))
-              .write(ServiceTransactionsCompanion(status: const Value('reversed'), reversedAt: Value(now)));
-          break;
-        
-        case 'telelink':
-          final telelink = await (select(telelinkOperations)..where((t) => t.id.equals(transactionId))).getSingleOrNull();
-          if (telelink == null || telelink.status == 'reversed') return false;
-          await (update(telelinkOperations)..where((t) => t.id.equals(transactionId)))
-              .write(TelelinkOperationsCompanion(status: const Value('reversed'), reversedAt: Value(now)));
-          break;
-        
-        case 'electricity':
-          final electricity = await (select(electricityRecharges)..where((e) => e.id.equals(transactionId))).getSingleOrNull();
-          if (electricity == null || electricity.status == 'reversed') return false;
-          await (update(electricityRecharges)..where((e) => e.id.equals(transactionId)))
-              .write(ElectricityRechargesCompanion(status: const Value('reversed'), reversedAt: Value(now)));
-          break;
-        
-        case 'programTopup':
-          final topup = await (select(programTopups)..where((p) => p.id.equals(transactionId))).getSingleOrNull();
-          if (topup == null || topup.status == 'reversed') return false;
-          await (update(programTopups)..where((p) => p.id.equals(transactionId)))
-              .write(ProgramTopupsCompanion(status: const Value('reversed'), reversedAt: Value(now)));
-          break;
-        
-        case 'farahnet':
-          final farahnet = await (select(farahnetPayments)..where((f) => f.id.equals(transactionId))).getSingleOrNull();
-          if (farahnet == null || farahnet.status == 'reversed') return false;
-          await (update(farahnetPayments)..where((f) => f.id.equals(transactionId)))
-              .write(FarahnetPaymentsCompanion(status: const Value('reversed'), reversedAt: Value(now)));
-          break;
-        
-        case 'wallet':
-          final wallet = await (select(walletOperations)..where((w) => w.id.equals(transactionId))).getSingleOrNull();
-          if (wallet == null || wallet.status == 'reversed') return false;
-          await (update(walletOperations)..where((w) => w.id.equals(transactionId)))
-              .write(WalletOperationsCompanion(status: const Value('reversed'), reversedAt: Value(now)));
-          break;
-        
-        default:
-          return false;
-      }
-      
-      return true;
+      return await transaction(() async {
+        switch (transactionType) {
+          case 'sale':
+            final sale = await (select(
+              sales,
+            )..where((s) => s.id.equals(transactionId))).getSingleOrNull();
+            if (sale == null || sale.status == 'reversed') return false;
+
+            final saleItemsList = await (select(
+              saleItems,
+            )..where((item) => item.saleId.equals(transactionId))).get();
+
+            for (final item in saleItemsList) {
+              final product = await (select(
+                products,
+              )..where((p) => p.id.equals(item.productId))).getSingleOrNull();
+
+              if (product == null) continue;
+
+              await (update(products)
+                    ..where((p) => p.id.equals(item.productId)))
+                  .write(ProductsCompanion(qty: Value(product.qty + item.qty)));
+
+              await into(stockMovements).insert(
+                StockMovementsCompanion.insert(
+                  id: const Uuid().v4(),
+                  productId: item.productId,
+                  type: 'in',
+                  qtyDelta: item.qty,
+                  reason: 'sale_reversal',
+                  refId: Value(transactionId),
+                  createdAt: now,
+                ),
+              );
+            }
+
+            if (sale.customerId != null) {
+              final customer = await (select(
+                customers,
+              )..where((c) => c.id.equals(sale.customerId!))).getSingleOrNull();
+
+              if (customer != null) {
+                final balanceDelta = sale.total - sale.paid;
+                if (balanceDelta != 0) {
+                  await (update(
+                    customers,
+                  )..where((c) => c.id.equals(customer.id))).write(
+                    CustomersCompanion(
+                      balance: Value(customer.balance - balanceDelta),
+                    ),
+                  );
+                }
+              }
+            }
+
+            await (delete(debts)..where(
+                  (d) =>
+                      d.sourceType.equals('sale') &
+                      d.sourceId.equals(transactionId),
+                ))
+                .go();
+
+            await (update(
+              sales,
+            )..where((s) => s.id.equals(transactionId))).write(
+              SalesCompanion(
+                status: const Value('reversed'),
+                reversedAt: Value(now),
+              ),
+            );
+            return true;
+
+          case 'repair':
+            final repair = await (select(
+              repairs,
+            )..where((r) => r.id.equals(transactionId))).getSingleOrNull();
+            if (repair == null || repair.transactionStatus == 'reversed') {
+              return false;
+            }
+
+            final parts = await (select(
+              repairParts,
+            )..where((part) => part.repairId.equals(transactionId))).get();
+
+            for (final part in parts) {
+              final product = await (select(
+                products,
+              )..where((p) => p.id.equals(part.productId))).getSingleOrNull();
+
+              if (product == null) continue;
+
+              await (update(products)
+                    ..where((p) => p.id.equals(part.productId)))
+                  .write(ProductsCompanion(qty: Value(product.qty + part.qty)));
+
+              await into(stockMovements).insert(
+                StockMovementsCompanion.insert(
+                  id: const Uuid().v4(),
+                  productId: part.productId,
+                  type: 'in',
+                  qtyDelta: part.qty,
+                  reason: 'repair_reversal',
+                  refId: Value(transactionId),
+                  createdAt: now,
+                ),
+              );
+            }
+
+            await (delete(debts)..where(
+                  (d) =>
+                      d.sourceType.equals('repair') &
+                      d.sourceId.equals(transactionId),
+                ))
+                .go();
+
+            await (update(
+              repairs,
+            )..where((r) => r.id.equals(transactionId))).write(
+              RepairsCompanion(
+                transactionStatus: const Value('reversed'),
+                reversedAt: Value(now),
+              ),
+            );
+            return true;
+
+          case 'service':
+            final service = await (select(
+              serviceTransactions,
+            )..where((s) => s.id.equals(transactionId))).getSingleOrNull();
+            if (service == null || service.status == 'reversed') return false;
+            await (update(
+              serviceTransactions,
+            )..where((s) => s.id.equals(transactionId))).write(
+              ServiceTransactionsCompanion(
+                status: const Value('reversed'),
+                reversedAt: Value(now),
+              ),
+            );
+            return true;
+
+          case 'telelink':
+            final telelink = await (select(
+              telelinkOperations,
+            )..where((t) => t.id.equals(transactionId))).getSingleOrNull();
+            if (telelink == null || telelink.status == 'reversed') return false;
+            await (update(
+              telelinkOperations,
+            )..where((t) => t.id.equals(transactionId))).write(
+              TelelinkOperationsCompanion(
+                status: const Value('reversed'),
+                reversedAt: Value(now),
+              ),
+            );
+            return true;
+
+          case 'electricity':
+            final electricity = await (select(
+              electricityRecharges,
+            )..where((e) => e.id.equals(transactionId))).getSingleOrNull();
+            if (electricity == null || electricity.status == 'reversed') {
+              return false;
+            }
+            await (update(
+              electricityRecharges,
+            )..where((e) => e.id.equals(transactionId))).write(
+              ElectricityRechargesCompanion(
+                status: const Value('reversed'),
+                reversedAt: Value(now),
+              ),
+            );
+            return true;
+
+          case 'programTopup':
+            final topup = await (select(
+              programTopups,
+            )..where((p) => p.id.equals(transactionId))).getSingleOrNull();
+            if (topup == null || topup.status == 'reversed') return false;
+            await (update(
+              programTopups,
+            )..where((p) => p.id.equals(transactionId))).write(
+              ProgramTopupsCompanion(
+                status: const Value('reversed'),
+                reversedAt: Value(now),
+              ),
+            );
+            return true;
+
+          case 'farahnet':
+            final farahnet = await (select(
+              farahnetPayments,
+            )..where((f) => f.id.equals(transactionId))).getSingleOrNull();
+            if (farahnet == null || farahnet.status == 'reversed') return false;
+            await (update(
+              farahnetPayments,
+            )..where((f) => f.id.equals(transactionId))).write(
+              FarahnetPaymentsCompanion(
+                status: const Value('reversed'),
+                reversedAt: Value(now),
+              ),
+            );
+            return true;
+
+          case 'wallet':
+            final wallet = await (select(
+              walletOperations,
+            )..where((w) => w.id.equals(transactionId))).getSingleOrNull();
+            if (wallet == null || wallet.status == 'reversed') return false;
+            await (update(
+              walletOperations,
+            )..where((w) => w.id.equals(transactionId))).write(
+              WalletOperationsCompanion(
+                status: const Value('reversed'),
+                reversedAt: Value(now),
+              ),
+            );
+            return true;
+
+          default:
+            return false;
+        }
+      });
     } catch (e) {
       print('Error reversing transaction: $e');
       return false;
@@ -3576,31 +3805,50 @@ class AppDatabase extends _$AppDatabase {
   }
 
   /// Check if a transaction is already reversed
-  Future<bool> isTransactionReversed(String transactionId, String transactionType) async {
+  Future<bool> isTransactionReversed(
+    String transactionId,
+    String transactionType,
+  ) async {
     switch (transactionType) {
       case 'sale':
-        final sale = await (select(sales)..where((s) => s.id.equals(transactionId))).getSingleOrNull();
+        final sale = await (select(
+          sales,
+        )..where((s) => s.id.equals(transactionId))).getSingleOrNull();
         return sale?.status == 'reversed';
       case 'repair':
-        final repair = await (select(repairs)..where((r) => r.id.equals(transactionId))).getSingleOrNull();
+        final repair = await (select(
+          repairs,
+        )..where((r) => r.id.equals(transactionId))).getSingleOrNull();
         return repair?.transactionStatus == 'reversed';
       case 'service':
-        final service = await (select(serviceTransactions)..where((s) => s.id.equals(transactionId))).getSingleOrNull();
+        final service = await (select(
+          serviceTransactions,
+        )..where((s) => s.id.equals(transactionId))).getSingleOrNull();
         return service?.status == 'reversed';
       case 'telelink':
-        final telelink = await (select(telelinkOperations)..where((t) => t.id.equals(transactionId))).getSingleOrNull();
+        final telelink = await (select(
+          telelinkOperations,
+        )..where((t) => t.id.equals(transactionId))).getSingleOrNull();
         return telelink?.status == 'reversed';
       case 'electricity':
-        final electricity = await (select(electricityRecharges)..where((e) => e.id.equals(transactionId))).getSingleOrNull();
+        final electricity = await (select(
+          electricityRecharges,
+        )..where((e) => e.id.equals(transactionId))).getSingleOrNull();
         return electricity?.status == 'reversed';
       case 'programTopup':
-        final topup = await (select(programTopups)..where((p) => p.id.equals(transactionId))).getSingleOrNull();
+        final topup = await (select(
+          programTopups,
+        )..where((p) => p.id.equals(transactionId))).getSingleOrNull();
         return topup?.status == 'reversed';
       case 'farahnet':
-        final farahnet = await (select(farahnetPayments)..where((f) => f.id.equals(transactionId))).getSingleOrNull();
+        final farahnet = await (select(
+          farahnetPayments,
+        )..where((f) => f.id.equals(transactionId))).getSingleOrNull();
         return farahnet?.status == 'reversed';
       case 'wallet':
-        final wallet = await (select(walletOperations)..where((w) => w.id.equals(transactionId))).getSingleOrNull();
+        final wallet = await (select(
+          walletOperations,
+        )..where((w) => w.id.equals(transactionId))).getSingleOrNull();
         return wallet?.status == 'reversed';
       default:
         return false;
@@ -3684,13 +3932,13 @@ class DetailedProfitBreakdown {
   final int netSalesRevenue;
   final int costOfGoodsSold;
   final int salesProfit;
-  
+
   // Other profits
   final int repairsProfit;
   final int servicesProfit;
   final int telelinkProfit;
   final int electricityProfit;
-  
+
   // Totals
   final int totalRevenue;
   final int totalProfit;

@@ -20,9 +20,37 @@ class ServiceTransactionsDao extends DatabaseAccessor<AppDatabase>
     String? notes,
     String? saleId,
   }) async {
-    final id = DateTime.now().millisecondsSinceEpoch.toString();
-    
+    final id = const Uuid().v4();
+    final now = DateTime.now();
+    String? resolvedCustomerId;
+    String? resolvedCustomerPhone;
+    final normalizedCustomerName = customerName?.trim();
+
     return db.transaction(() async {
+      if (normalizedCustomerName != null && normalizedCustomerName.isNotEmpty) {
+        final existingCustomer =
+            await (db.select(db.customers)
+                  ..where((c) => c.name.equals(normalizedCustomerName)))
+                .getSingleOrNull();
+
+        if (existingCustomer != null) {
+          resolvedCustomerId = existingCustomer.id;
+          resolvedCustomerPhone = existingCustomer.phone;
+        } else {
+          resolvedCustomerId = const Uuid().v4();
+          await db
+              .into(db.customers)
+              .insert(
+                CustomersCompanion.insert(
+                  id: resolvedCustomerId!,
+                  name: normalizedCustomerName,
+                  phone: const Value(null),
+                  createdAt: now,
+                ),
+              );
+        }
+      }
+
       // Insert the service transaction
       await into(db.serviceTransactions).insert(
         ServiceTransactionsCompanion(
@@ -30,25 +58,24 @@ class ServiceTransactionsDao extends DatabaseAccessor<AppDatabase>
           category: Value(category),
           provider: Value(provider),
           providerLabel: Value(providerLabel),
-          customerName: Value(customerName),
+          customerName: Value(normalizedCustomerName),
           amountCents: Value(amountCents),
           profitCents: Value(profitCents),
-          createdAt: Value(DateTime.now()),
+          createdAt: Value(now),
           notes: Value(notes),
           saleId: Value(saleId),
         ),
       );
-      
+
       // Create a debt record if customer name is provided
-      if (customerName != null && customerName.isNotEmpty) {
+      if (normalizedCustomerName != null && normalizedCustomerName.isNotEmpty) {
         final debtId = const Uuid().v4();
-        final now = DateTime.now();
         await into(db.debts).insert(
           DebtsCompanion.insert(
             id: debtId,
-            customerId: Value(null), // Service transactions don't have a customerId
-            customerName: customerName,
-            customerPhone: const Value(null),
+            customerId: Value(resolvedCustomerId),
+            customerName: normalizedCustomerName,
+            customerPhone: Value(resolvedCustomerPhone),
             sourceType: 'service',
             sourceId: id,
             amount: amountCents,
@@ -57,7 +84,7 @@ class ServiceTransactionsDao extends DatabaseAccessor<AppDatabase>
           ),
         );
       }
-      
+
       return 1; // Return success
     });
   }

@@ -73,6 +73,7 @@ class _RepairsScreenState extends ConsumerState<RepairsScreen> {
 
   final TextEditingController _partsSearchController = TextEditingController();
   List<Product> _filteredParts = [];
+  bool _showPartsPanel = false;
 
   @override
   void dispose() {
@@ -1040,6 +1041,16 @@ class _RepairsScreenState extends ConsumerState<RepairsScreen> {
                         ),
                       ),
                       const SizedBox(width: 12),
+                      IconButton(
+                        icon: const Icon(Icons.search),
+                        tooltip: _lang(context, 'بحث عن القطع', 'Search Parts'),
+                        onPressed: () {
+                          setState(() {
+                            _showPartsPanel = !_showPartsPanel;
+                          });
+                        },
+                      ),
+                      const SizedBox(width: 8),
                       ElevatedButton.icon(
                         onPressed: _showPhase1NewRepairDialog,
                         icon: const Icon(Icons.add),
@@ -1211,258 +1222,264 @@ class _RepairsScreenState extends ConsumerState<RepairsScreen> {
             ),
           ),
 
-          // Parts search panel (right side)
-          Container(
-            width: 280,
-            decoration: BoxDecoration(
-              color: Theme.of(context).cardColor,
-              border: Border(
-                left: BorderSide(
-                  color: Theme.of(context).dividerColor,
-                  width: 1,
-                ),
-              ),
-            ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Padding(
-                  padding: const EdgeInsets.all(16),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        children: [
-                          Icon(
-                            Icons.search,
-                            color: Theme.of(context).primaryColor,
-                          ),
-                          const SizedBox(width: 8),
-                          Text(
-                            _lang(context, 'بحث عن القطع', 'Parts Search'),
-                            style: Theme.of(context).textTheme.titleMedium
-                                ?.copyWith(fontWeight: FontWeight.bold),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 12),
-                      TextField(
-                        controller: _partsSearchController,
-                        decoration: InputDecoration(
-                          labelText: _lang(
-                            context,
-                            'اسم القطعة أو كود',
-                            'Part name or code',
-                          ),
-                          border: const OutlineInputBorder(),
-                          prefixIcon: const Icon(Icons.hardware),
-                          hintText: _lang(
-                            context,
-                            'مثال: شاشة، بطارية...',
-                            'Example: screen, battery...',
-                          ),
-                        ),
-                        onChanged: _searchParts,
-                      ),
-                    ],
+          if (_showPartsPanel)
+            Container(
+              width: 280,
+              decoration: BoxDecoration(
+                color: Theme.of(context).cardColor,
+                border: Border(
+                  left: BorderSide(
+                    color: Theme.of(context).dividerColor,
+                    width: 1,
                   ),
                 ),
-                const Divider(height: 1),
-                Expanded(
-                  child: _filteredParts.isEmpty
-                      ? Center(
-                          child: Column(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              Icon(
-                                Icons.inventory_2_outlined,
-                                size: 64,
-                                color: Colors.grey.shade400,
-                              ),
-                              const SizedBox(height: 16),
-                              Text(
-                                _partsSearchController.text.isEmpty
-                                    ? _lang(
-                                        context,
-                                        'ابحث عن قطعة للصيانة',
-                                        'Search for a repair part',
-                                      )
-                                    : _lang(
-                                        context,
-                                        'لا توجد نتائج',
-                                        'No results',
-                                      ),
-                                style: TextStyle(
-                                  color: Colors.grey.shade600,
-                                  fontSize: 14,
-                                ),
-                              ),
-                            ],
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.all(16),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            Icon(
+                              Icons.search,
+                              color: Theme.of(context).primaryColor,
+                            ),
+                            const SizedBox(width: 8),
+                            Text(
+                              _lang(context, 'بحث عن القطع', 'Parts Search'),
+                              style: Theme.of(context).textTheme.titleMedium
+                                  ?.copyWith(fontWeight: FontWeight.bold),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 12),
+                        TextField(
+                          controller: _partsSearchController,
+                          decoration: InputDecoration(
+                            labelText: _lang(
+                              context,
+                              'اسم القطعة أو كود',
+                              'Part name or code',
+                            ),
+                            border: const OutlineInputBorder(),
+                            prefixIcon: const Icon(Icons.hardware),
+                            hintText: _lang(
+                              context,
+                              'مثال: شاشة، بطارية...',
+                              'Example: screen, battery...',
+                            ),
                           ),
-                        )
-                      : ListView.separated(
-                          itemCount: _filteredParts.length,
-                          separatorBuilder: (_, __) => const Divider(height: 1),
-                          itemBuilder: (context, index) {
-                            final part = _filteredParts[index];
-                            final inStock = part.qty > 0;
+                          onChanged: _searchParts,
+                        ),
+                      ],
+                    ),
+                  ),
+                  const Divider(height: 1),
+                  Expanded(
+                    child: _filteredParts.isEmpty
+                        ? Center(
+                            child: Column(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                Icon(
+                                  Icons.inventory_2_outlined,
+                                  size: 64,
+                                  color: Colors.grey.shade400,
+                                ),
+                                const SizedBox(height: 16),
+                                Text(
+                                  _partsSearchController.text.isEmpty
+                                      ? _lang(
+                                          context,
+                                          'ابحث عن قطعة للصيانة',
+                                          'Search for a repair part',
+                                        )
+                                      : _lang(
+                                          context,
+                                          'لا توجد نتائج',
+                                          'No results',
+                                        ),
+                                  style: TextStyle(
+                                    color: Colors.grey.shade600,
+                                    fontSize: 14,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          )
+                        : ListView.separated(
+                            itemCount: _filteredParts.length,
+                            separatorBuilder: (_, __) =>
+                                const Divider(height: 1),
+                            itemBuilder: (context, index) {
+                              final part = _filteredParts[index];
+                              final inStock = part.qty > 0;
 
-                            return ListTile(
-                              leading: CircleAvatar(
-                                backgroundColor: inStock
-                                    ? Theme.of(
-                                        context,
-                                      ).colorScheme.primaryContainer
-                                    : Theme.of(
-                                        context,
-                                      ).colorScheme.errorContainer,
-                                child: Icon(
-                                  Icons.hardware,
-                                  color: inStock
+                              return ListTile(
+                                leading: CircleAvatar(
+                                  backgroundColor: inStock
                                       ? Theme.of(
                                           context,
-                                        ).colorScheme.onPrimaryContainer
+                                        ).colorScheme.primaryContainer
                                       : Theme.of(
                                           context,
-                                        ).colorScheme.onErrorContainer,
-                                  size: 20,
-                                ),
-                              ),
-                              title: Text(
-                                part.name,
-                                style: const TextStyle(
-                                  fontWeight: FontWeight.w500,
-                                ),
-                              ),
-                              subtitle: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  const SizedBox(height: 4),
-                                  Row(
-                                    children: [
-                                      Icon(
-                                        Icons.monetization_on,
-                                        size: 14,
-                                        color: Colors.green.shade700,
-                                      ),
-                                      const SizedBox(width: 4),
-                                      Text(
-                                        '${_lang(context, 'السعر', 'Price')}: ${_formatCents(part.sellPrice)}',
-                                        style: TextStyle(
-                                          color: Colors.green.shade700,
-                                          fontWeight: FontWeight.bold,
-                                        ),
-                                      ),
-                                    ],
+                                        ).colorScheme.errorContainer,
+                                  child: Icon(
+                                    Icons.hardware,
+                                    color: inStock
+                                        ? Theme.of(
+                                            context,
+                                          ).colorScheme.onPrimaryContainer
+                                        : Theme.of(
+                                            context,
+                                          ).colorScheme.onErrorContainer,
+                                    size: 20,
                                   ),
-                                  const SizedBox(height: 2),
-                                  Row(
-                                    children: [
-                                      Icon(
-                                        inStock
-                                            ? Icons.check_circle
-                                            : Icons.cancel,
-                                        size: 14,
-                                        color: inStock
-                                            ? Theme.of(
-                                                context,
-                                              ).colorScheme.onPrimaryContainer
-                                            : Theme.of(
-                                                context,
-                                              ).colorScheme.onErrorContainer,
-                                      ),
-                                      const SizedBox(width: 4),
-                                      Text(
-                                        inStock
-                                            ? '${_lang(context, 'الكمية', 'Qty')}: ${part.qty}'
-                                            : _lang(
-                                                context,
-                                                'غير متوفر',
-                                                'Out of stock',
-                                              ),
-                                        style: TextStyle(
+                                ),
+                                title: Text(
+                                  part.name,
+                                  style: const TextStyle(
+                                    fontWeight: FontWeight.w500,
+                                  ),
+                                ),
+                                subtitle: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    const SizedBox(height: 4),
+                                    Row(
+                                      children: [
+                                        Icon(
+                                          Icons.monetization_on,
+                                          size: 14,
+                                          color: Colors.green.shade700,
+                                        ),
+                                        const SizedBox(width: 4),
+                                        Text(
+                                          '${_lang(context, 'السعر', 'Price')}: ${_formatCents(part.sellPrice)}',
+                                          style: TextStyle(
+                                            color: Colors.green.shade700,
+                                            fontWeight: FontWeight.bold,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                    const SizedBox(height: 2),
+                                    Row(
+                                      children: [
+                                        Icon(
+                                          inStock
+                                              ? Icons.check_circle
+                                              : Icons.cancel,
+                                          size: 14,
                                           color: inStock
                                               ? Theme.of(
                                                   context,
-                                                ).colorScheme.onPrimaryContainer
+                                                )
+                                                    .colorScheme
+                                                    .onPrimaryContainer
                                               : Theme.of(
                                                   context,
                                                 ).colorScheme.onErrorContainer,
-                                          fontSize: 12,
                                         ),
-                                      ),
-                                    ],
-                                  ),
-                                ],
-                              ),
-                              trailing: Icon(
-                                Icons.info_outline,
-                                color: Theme.of(context).iconTheme.color,
-                              ),
-                              onTap: () {
-                                // Show more details or quick add
-                                showDialog(
-                                  context: context,
-                                  builder: (context) => AlertDialog(
-                                    title: Text(part.name),
-                                    content: Column(
-                                      mainAxisSize: MainAxisSize.min,
-                                      crossAxisAlignment:
-                                          CrossAxisAlignment.start,
-                                      children: [
-                                        _InfoRow(
-                                          label: _lang(
-                                            context,
-                                            'سعر البيع',
-                                            'Sale Price',
+                                        const SizedBox(width: 4),
+                                        Text(
+                                          inStock
+                                              ? '${_lang(context, 'الكمية', 'Qty')}: ${part.qty}'
+                                              : _lang(
+                                                  context,
+                                                  'غير متوفر',
+                                                  'Out of stock',
+                                                ),
+                                          style: TextStyle(
+                                            color: inStock
+                                                ? Theme.of(
+                                                    context,
+                                                  )
+                                                      .colorScheme
+                                                      .onPrimaryContainer
+                                                : Theme.of(
+                                                    context,
+                                                  ).colorScheme.onErrorContainer,
+                                            fontSize: 12,
                                           ),
-                                          value: _formatCents(part.sellPrice),
                                         ),
-                                        _InfoRow(
-                                          label: _lang(
-                                            context,
-                                            'سعر الشراء',
-                                            'Cost Price',
-                                          ),
-                                          value: _formatCents(part.costPrice),
-                                        ),
-                                        _InfoRow(
-                                          label: _lang(
-                                            context,
-                                            'الكمية المتوفرة',
-                                            'Available Qty',
-                                          ),
-                                          value: '${part.qty}',
-                                        ),
-                                        if (part.barcode != null)
+                                      ],
+                                    ),
+                                  ],
+                                ),
+                                trailing: Icon(
+                                  Icons.info_outline,
+                                  color: Theme.of(context).iconTheme.color,
+                                ),
+                                onTap: () {
+                                  // Show more details or quick add
+                                  showDialog(
+                                    context: context,
+                                    builder: (context) => AlertDialog(
+                                      title: Text(part.name),
+                                      content: Column(
+                                        mainAxisSize: MainAxisSize.min,
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.start,
+                                        children: [
                                           _InfoRow(
                                             label: _lang(
                                               context,
-                                              'الباركود',
-                                              'Barcode',
+                                              'سعر البيع',
+                                              'Sale Price',
                                             ),
-                                            value: part.barcode!,
+                                            value: _formatCents(part.sellPrice),
                                           ),
+                                          _InfoRow(
+                                            label: _lang(
+                                              context,
+                                              'سعر الشراء',
+                                              'Cost Price',
+                                            ),
+                                            value: _formatCents(part.costPrice),
+                                          ),
+                                          _InfoRow(
+                                            label: _lang(
+                                              context,
+                                              'الكمية المتوفرة',
+                                              'Available Qty',
+                                            ),
+                                            value: '${part.qty}',
+                                          ),
+                                          if (part.barcode != null)
+                                            _InfoRow(
+                                              label: _lang(
+                                                context,
+                                                'الباركود',
+                                                'Barcode',
+                                              ),
+                                              value: part.barcode!,
+                                            ),
+                                        ],
+                                      ),
+                                      actions: [
+                                        TextButton(
+                                          onPressed: () =>
+                                              Navigator.pop(context),
+                                          child: Text(
+                                            _lang(context, 'إغلاق', 'Close'),
+                                          ),
+                                        ),
                                       ],
                                     ),
-                                    actions: [
-                                      TextButton(
-                                        onPressed: () => Navigator.pop(context),
-                                        child: Text(
-                                          _lang(context, 'إغلاق', 'Close'),
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                );
-                              },
-                            );
-                          },
-                        ),
-                ),
-              ],
+                                  );
+                                },
+                              );
+                            },
+                          ),
+                  ),
+                ],
+              ),
             ),
-          ),
         ],
       ),
     );

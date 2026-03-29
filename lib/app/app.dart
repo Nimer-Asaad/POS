@@ -15,6 +15,7 @@ import '../features/repairs/presentation/purchase_invoices_screen.dart'
     as repair_purchases;
 import '../features/reports/presentation/reports_screen.dart';
 import '../features/reports/presentation/transactions_history_screen.dart';
+import '../features/reports/presentation/provider_operations_screen.dart';
 import '../features/settings/presentation/settings_screen.dart';
 import 'theme.dart';
 import '../core/providers/settings_provider.dart';
@@ -125,6 +126,13 @@ class _ShellScreenState extends State<ShellScreen> {
         selectedIcon: Icons.history,
       ),
       custom.NavigationDestination(
+        label: Localizations.localeOf(context).languageCode == 'ar'
+            ? 'عمليات المزودات'
+            : 'Provider Operations',
+        icon: Icons.swap_horiz_outlined,
+        selectedIcon: Icons.swap_horiz,
+      ),
+      custom.NavigationDestination(
         label: l10n.settings,
         icon: Icons.settings_outlined,
         selectedIcon: Icons.settings,
@@ -150,6 +158,7 @@ class _ShellScreenState extends State<ShellScreen> {
       const CustomersScreen(),
       const ReportsScreen(),
       const TransactionsHistoryScreen(),
+      const ProviderOperationsScreen(),
       const SettingsScreen(),
     ];
 

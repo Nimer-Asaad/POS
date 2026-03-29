@@ -13,6 +13,9 @@ import '../../../design/app_colors.dart';
 import '../../../design/app_spacing.dart';
 import '../../../design/app_radius.dart';
 import '../../../design/app_text_styles.dart';
+import '../../dashboard/providers/dashboard_provider.dart';
+import '../../inventory/presentation/daily_services_inventory_screen.dart';
+import '../../inventory/providers/products_providers.dart';
 import '../domain/transaction_history_model.dart';
 import '../providers/transaction_history_provider.dart';
 
@@ -103,13 +106,21 @@ class _TransactionsHistoryScreenState
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
               content: Text(
-                _lang('تم استرجاع العملية بنجاح', 'Transaction reversed successfully'),
+                _lang(
+                  'تم استرجاع العملية بنجاح',
+                  'Transaction reversed successfully',
+                ),
               ),
               backgroundColor: Colors.green,
             ),
           );
           // Refresh the list
           ref.invalidate(transactionsHistoryProvider);
+          ref.invalidate(detailedProfitProvider);
+          ref.invalidate(dashboardDataProvider);
+          ref.invalidate(productsStreamProvider);
+          ref.invalidate(allProductsProvider);
+          ref.invalidate(dailyInventoryDataProvider);
         } else {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
@@ -137,9 +148,7 @@ class _TransactionsHistoryScreenState
     final transactionsAsync = ref.watch(transactionsHistoryProvider(range));
 
     return GradientScaffold(
-      appBar: AppTopBar(
-        title: _lang('سجل المعاملات', 'Transactions History'),
-      ),
+      appBar: AppTopBar(title: _lang('سجل المعاملات', 'Transactions History')),
       body: Center(
         child: ConstrainedBox(
           constraints: const BoxConstraints(maxWidth: 1400),
@@ -224,45 +233,8 @@ class _TransactionsHistoryScreenState
 
                 // Summary cards
                 transactionsAsync.when(
-                  data: (summary) => _buildSummaryCards(
-                    context,
-                    summary,
-                    isDark,
-                    isRTL,
-                  ),
-                  loading: () => const Padding(
-                    padding: EdgeInsets.all(AppSpacing.lg),
-                    child: CircularProgressIndicator(),
-                  ),
-                  error: (error, stack) => Padding(
-                    padding: const EdgeInsets.all(AppSpacing.lg),
-                    child: AppErrorState(
-                      message: _lang(
-                        'فشل تحميل المعاملات',
-                        'Failed to load transactions',
-                      ),
-                      details: error.toString(),
-                      stackTrace: stack,
-                      onRetry: () => ref.invalidate(transactionsHistoryProvider),
-                    ),
-                  ),
-                ),
-
-                const SizedBox(height: AppSpacing.md),
-
-                // Detailed profit breakdown
-                _buildDetailedProfitBreakdown(context, isDark, isRTL, range),
-
-                const SizedBox(height: AppSpacing.md),
-
-                // Transactions list
-                transactionsAsync.when(
-                  data: (summary) => _buildTransactionsList(
-                    context,
-                    summary,
-                    isDark,
-                    isRTL,
-                  ),
+                  data: (summary) =>
+                      _buildSummaryCards(context, summary, isDark, isRTL),
                   loading: () => const Padding(
                     padding: EdgeInsets.all(AppSpacing.lg),
                     child: CircularProgressIndicator(),
@@ -281,7 +253,37 @@ class _TransactionsHistoryScreenState
                     ),
                   ),
                 ),
-                
+
+                const SizedBox(height: AppSpacing.md),
+
+                // Detailed profit breakdown
+                _buildDetailedProfitBreakdown(context, isDark, isRTL, range),
+
+                const SizedBox(height: AppSpacing.md),
+
+                // Transactions list
+                transactionsAsync.when(
+                  data: (summary) =>
+                      _buildTransactionsList(context, summary, isDark, isRTL),
+                  loading: () => const Padding(
+                    padding: EdgeInsets.all(AppSpacing.lg),
+                    child: CircularProgressIndicator(),
+                  ),
+                  error: (error, stack) => Padding(
+                    padding: const EdgeInsets.all(AppSpacing.lg),
+                    child: AppErrorState(
+                      message: _lang(
+                        'فشل تحميل المعاملات',
+                        'Failed to load transactions',
+                      ),
+                      details: error.toString(),
+                      stackTrace: stack,
+                      onRetry: () =>
+                          ref.invalidate(transactionsHistoryProvider),
+                    ),
+                  ),
+                ),
+
                 const SizedBox(height: AppSpacing.lg),
               ],
             ),
@@ -389,7 +391,10 @@ class _TransactionsHistoryScreenState
 
               // Sales breakdown
               _ProfitDetailRow(
-                label: _lang('إجمالي المبيعات (قبل الخصم)', 'Total Sales (Before Discount)'),
+                label: _lang(
+                  'إجمالي المبيعات (قبل الخصم)',
+                  'Total Sales (Before Discount)',
+                ),
                 value: _formatCents(breakdown.totalSalesBeforeDiscount),
                 isDark: isDark,
                 isSubitem: false,
@@ -423,7 +428,7 @@ class _TransactionsHistoryScreenState
                 isBold: true,
                 valueColor: AppColors.green600,
               ),
-              
+
               const SizedBox(height: AppSpacing.xs),
               const Divider(),
               const SizedBox(height: AppSpacing.xs),
@@ -457,7 +462,7 @@ class _TransactionsHistoryScreenState
                   isDark: isDark,
                   valueColor: Colors.amber,
                 ),
-              
+
               const SizedBox(height: AppSpacing.xs),
               const Divider(thickness: 2),
               const SizedBox(height: AppSpacing.xs),
@@ -487,9 +492,7 @@ class _TransactionsHistoryScreenState
                   'فشل تحميل تفصيل الأرباح',
                   'Failed to load profit breakdown',
                 ),
-                style: TextStyle(
-                  color: Colors.red,
-                ),
+                style: TextStyle(color: Colors.red),
               ),
             ),
           ),
@@ -589,11 +592,7 @@ class _SummaryCard extends StatelessWidget {
               color: color.withOpacity(0.1),
               borderRadius: BorderRadius.circular(AppRadius.md),
             ),
-            child: Icon(
-              icon,
-              color: color,
-              size: 24,
-            ),
+            child: Icon(icon, color: color, size: 24),
           ),
           const SizedBox(width: AppSpacing.md),
           Expanded(
@@ -653,7 +652,7 @@ class _TransactionCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final isReversed = transaction.status == TransactionStatus.reversed;
-    
+
     return Opacity(
       opacity: isReversed ? 0.5 : 1.0,
       child: AppCard(
@@ -689,8 +688,8 @@ class _TransactionCard extends StatelessWidget {
                           color: isReversed
                               ? Colors.grey
                               : (isDark
-                                  ? AppColors.darkTextPrimary
-                                  : AppColors.textPrimary),
+                                    ? AppColors.darkTextPrimary
+                                    : AppColors.textPrimary),
                         ),
                       ),
                       const SizedBox(width: 8),
@@ -773,8 +772,8 @@ class _TransactionCard extends StatelessWidget {
                     color: isReversed
                         ? Colors.grey
                         : (isDark
-                            ? AppColors.darkTextPrimary
-                            : AppColors.textPrimary),
+                              ? AppColors.darkTextPrimary
+                              : AppColors.textPrimary),
                   ),
                 ),
                 const SizedBox(height: 4),
@@ -867,23 +866,32 @@ class _ProfitDetailRow extends StatelessWidget {
           Expanded(
             child: Text(
               label,
-              style: (isLarge ? AppTextStyles.h4 : AppTextStyles.bodyMedium).copyWith(
-                fontWeight: isBold ? FontWeight.w700 : FontWeight.normal,
-                color: isDark
-                    ? (isSubitem ? AppColors.darkTextSecondary : AppColors.darkTextPrimary)
-                    : (isSubitem ? AppColors.textSecondary : AppColors.textPrimary),
-              ),
+              style: (isLarge ? AppTextStyles.h4 : AppTextStyles.bodyMedium)
+                  .copyWith(
+                    fontWeight: isBold ? FontWeight.w700 : FontWeight.normal,
+                    color: isDark
+                        ? (isSubitem
+                              ? AppColors.darkTextSecondary
+                              : AppColors.darkTextPrimary)
+                        : (isSubitem
+                              ? AppColors.textSecondary
+                              : AppColors.textPrimary),
+                  ),
               overflow: TextOverflow.ellipsis,
             ),
           ),
           const SizedBox(width: 8),
           Text(
             value,
-            style: (isLarge ? AppTextStyles.h3 : AppTextStyles.bodyLarge).copyWith(
-              fontWeight: isBold ? FontWeight.w700 : FontWeight.w600,
-              color: valueColor ??
-                  (isDark ? AppColors.darkTextPrimary : AppColors.textPrimary),
-            ),
+            style: (isLarge ? AppTextStyles.h3 : AppTextStyles.bodyLarge)
+                .copyWith(
+                  fontWeight: isBold ? FontWeight.w700 : FontWeight.w600,
+                  color:
+                      valueColor ??
+                      (isDark
+                          ? AppColors.darkTextPrimary
+                          : AppColors.textPrimary),
+                ),
           ),
         ],
       ),
