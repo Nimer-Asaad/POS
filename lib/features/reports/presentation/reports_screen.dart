@@ -53,6 +53,13 @@ final allMaintenanceDevicesProvider = FutureProvider.autoDispose((ref) async {
   return db.getCurrentMaintenanceDevicesCount();
 });
 
+// Provider for withdrawn parts capital in selected range
+final withdrawnPartsCapitalProvider = FutureProvider.autoDispose
+    .family<int, ReportsRange>((ref, range) async {
+      final db = ref.watch(dbProvider);
+      return db.getWithdrawnPartsCapital(range.from, range.to);
+    });
+
 class ReportsScreen extends ConsumerStatefulWidget {
   const ReportsScreen({super.key});
 
@@ -169,6 +176,9 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
     final topPartsAsync = ref.watch(topPartsProvider(range));
     final repairProfitAsync = ref.watch(repairProfitProvider(range));
     final maintenanceDevicesAsync = ref.watch(allMaintenanceDevicesProvider);
+    final withdrawnPartsCapitalAsync = ref.watch(
+      withdrawnPartsCapitalProvider(range),
+    );
 
     return GradientScaffold(
       appBar: AppTopBar(title: l10n.reports),
@@ -278,7 +288,11 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
                         ),
                         repairProfitAsync.when(
                           data: (profit) => StatCard(
-                            title: _lang(context, 'أرباح الصيانة', 'Repair Profit'),
+                            title: _lang(
+                              context,
+                              'أرباح الصيانة',
+                              'Repair Profit',
+                            ),
                             value: _formatCents(profit),
                             icon: Icons.build_circle,
                             iconColor: Colors.orange,
@@ -286,7 +300,11 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
                           ),
                           loading: () => const SizedBox(),
                           error: (error, stack) => StatCard(
-                            title: _lang(context, 'أرباح الصيانة', 'Repair Profit'),
+                            title: _lang(
+                              context,
+                              'أرباح الصيانة',
+                              'Repair Profit',
+                            ),
                             value: 'Error',
                             icon: Icons.error_outline,
                             iconColor: Colors.red,
@@ -295,7 +313,11 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
                         ),
                         maintenanceDevicesAsync.when(
                           data: (count) => StatCard(
-                            title: _lang(context, 'عدد أجهزة الصيانة', 'Maintenance Devices'),
+                            title: _lang(
+                              context,
+                              'عدد أجهزة الصيانة',
+                              'Maintenance Devices',
+                            ),
                             value: '$count',
                             icon: Icons.build,
                             iconColor: Colors.purple,
@@ -303,7 +325,36 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
                           ),
                           loading: () => const SizedBox(),
                           error: (error, stack) => StatCard(
-                            title: _lang(context, 'عدد أجهزة الصيانة', 'Maintenance Devices'),
+                            title: _lang(
+                              context,
+                              'عدد أجهزة الصيانة',
+                              'Maintenance Devices',
+                            ),
+                            value: 'Error',
+                            icon: Icons.error_outline,
+                            iconColor: Colors.red,
+                            backgroundColor: Theme.of(context).cardColor,
+                          ),
+                        ),
+                        withdrawnPartsCapitalAsync.when(
+                          data: (capital) => StatCard(
+                            title: _lang(
+                              context,
+                              'رأس مال القطع المسحوبة',
+                              'Withdrawn Parts Capital',
+                            ),
+                            value: _formatCents(capital),
+                            icon: Icons.store,
+                            iconColor: Colors.teal,
+                            backgroundColor: Theme.of(context).cardColor,
+                          ),
+                          loading: () => const SizedBox(),
+                          error: (error, stack) => StatCard(
+                            title: _lang(
+                              context,
+                              'رأس مال القطع المسحوبة',
+                              'Withdrawn Parts Capital',
+                            ),
                             value: 'Error',
                             icon: Icons.error_outline,
                             iconColor: Colors.red,

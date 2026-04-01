@@ -411,74 +411,102 @@ class _SuppliersScreenState extends ConsumerState<SuppliersScreen> {
                                       padding: const EdgeInsets.symmetric(
                                         vertical: 8,
                                       ),
-                                      child: Column(
-                                        crossAxisAlignment:
-                                            CrossAxisAlignment.start,
-                                        children: [
-                                          Row(
-                                            mainAxisAlignment:
-                                                MainAxisAlignment.spaceBetween,
+                                      child: InkWell(
+                                        onTap: () =>
+                                            _showPurchaseDetailsDialog(item.id),
+                                        borderRadius: BorderRadius.circular(8),
+                                        child: Padding(
+                                          padding: const EdgeInsets.symmetric(
+                                            vertical: 4,
+                                            horizontal: 2,
+                                          ),
+                                          child: Column(
+                                            crossAxisAlignment:
+                                                CrossAxisAlignment.start,
                                             children: [
-                                              Column(
-                                                crossAxisAlignment:
-                                                    CrossAxisAlignment.start,
+                                              Row(
+                                                mainAxisAlignment:
+                                                    MainAxisAlignment
+                                                        .spaceBetween,
                                                 children: [
-                                                  Text(
-                                                    '${_lang(context, 'فاتورة', 'Invoice')} #${item.invoiceNumber ?? item.id.substring(0, 8)}',
-                                                    style: const TextStyle(
-                                                      fontWeight:
-                                                          FontWeight.bold,
-                                                    ),
+                                                  Column(
+                                                    crossAxisAlignment:
+                                                        CrossAxisAlignment
+                                                            .start,
+                                                    children: [
+                                                      Text(
+                                                        '${_lang(context, 'فاتورة', 'Invoice')} #${item.invoiceNumber ?? item.id.substring(0, 8)}',
+                                                        style: const TextStyle(
+                                                          fontWeight:
+                                                              FontWeight.bold,
+                                                        ),
+                                                      ),
+                                                      Text(
+                                                        item.createdAt
+                                                            .toString()
+                                                            .split(' ')[0],
+                                                        style: const TextStyle(
+                                                          fontSize: 12,
+                                                          color: Colors.grey,
+                                                        ),
+                                                      ),
+                                                    ],
                                                   ),
-                                                  Text(
-                                                    item.createdAt
-                                                        .toString()
-                                                        .split(' ')[0],
-                                                    style: const TextStyle(
-                                                      fontSize: 12,
-                                                      color: Colors.grey,
-                                                    ),
+                                                  Column(
+                                                    crossAxisAlignment:
+                                                        CrossAxisAlignment.end,
+                                                    children: [
+                                                      Text(
+                                                        '₪${(item.total / 100).toStringAsFixed(2)}',
+                                                        style: const TextStyle(
+                                                          fontWeight:
+                                                              FontWeight.bold,
+                                                          fontSize: 14,
+                                                        ),
+                                                      ),
+                                                      if (!isPaid)
+                                                        Text(
+                                                          '${_lang(context, 'المتبقي', 'Remaining')}: ₪${(balance / 100).toStringAsFixed(2)}',
+                                                          style: TextStyle(
+                                                            color: Colors
+                                                                .red
+                                                                .shade600,
+                                                            fontSize: 12,
+                                                          ),
+                                                        )
+                                                      else
+                                                        Text(
+                                                          _lang(
+                                                            context,
+                                                            'مدفوعة',
+                                                            'Paid',
+                                                          ),
+                                                          style:
+                                                              const TextStyle(
+                                                                color: Colors
+                                                                    .green,
+                                                                fontSize: 12,
+                                                              ),
+                                                        ),
+                                                    ],
                                                   ),
                                                 ],
                                               ),
-                                              Column(
-                                                crossAxisAlignment:
-                                                    CrossAxisAlignment.end,
-                                                children: [
-                                                  Text(
-                                                    '₪${(item.total / 100).toStringAsFixed(2)}',
-                                                    style: const TextStyle(
-                                                      fontWeight:
-                                                          FontWeight.bold,
-                                                      fontSize: 14,
-                                                    ),
-                                                  ),
-                                                  if (!isPaid)
-                                                    Text(
-                                                      '${_lang(context, 'المتبقي', 'Remaining')}: ₪${(balance / 100).toStringAsFixed(2)}',
-                                                      style: TextStyle(
-                                                        color:
-                                                            Colors.red.shade600,
-                                                        fontSize: 12,
-                                                      ),
-                                                    )
-                                                  else
-                                                    Text(
-                                                      _lang(
-                                                        context,
-                                                        'مدفوعة',
-                                                        'Paid',
-                                                      ),
-                                                      style: TextStyle(
-                                                        color: Colors.green,
-                                                        fontSize: 12,
-                                                      ),
-                                                    ),
-                                                ],
+                                              const SizedBox(height: 4),
+                                              Text(
+                                                _lang(
+                                                  context,
+                                                  'اضغط لعرض الأصناف',
+                                                  'Tap to view items',
+                                                ),
+                                                style: TextStyle(
+                                                  fontSize: 11,
+                                                  color: Colors.grey.shade600,
+                                                ),
                                               ),
                                             ],
                                           ),
-                                        ],
+                                        ),
                                       ),
                                     );
                                   }
@@ -509,6 +537,154 @@ class _SuppliersScreenState extends ConsumerState<SuppliersScreen> {
               ),
             );
           },
+        );
+      },
+    );
+  }
+
+  Future<void> _showPurchaseDetailsDialog(String purchaseId) async {
+    final purchaseWithItems = await ref.read(
+      purchaseDetailsProvider(purchaseId).future,
+    );
+
+    if (!mounted) return;
+
+    if (purchaseWithItems == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            _lang(
+              context,
+              'تعذر تحميل تفاصيل الفاتورة',
+              'Could not load invoice details',
+            ),
+          ),
+          backgroundColor: Colors.red,
+        ),
+      );
+      return;
+    }
+
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) {
+        final purchase = purchaseWithItems.purchase;
+        final items = purchaseWithItems.items;
+        final remaining = purchase.total - purchase.paid;
+
+        return AlertDialog(
+          title: Text(
+            '${_lang(dialogContext, 'تفاصيل الفاتورة', 'Invoice details')} #${purchase.invoiceNumber ?? purchase.id.substring(0, 8)}',
+          ),
+          content: SizedBox(
+            width: MediaQuery.of(dialogContext).size.width < 720
+                ? MediaQuery.of(dialogContext).size.width * 0.92
+                : 620,
+            child: SingleChildScrollView(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    '${_lang(dialogContext, 'التاريخ', 'Date')}: ${DateFormat('yyyy-MM-dd').format(purchase.createdAt)}',
+                    style: const TextStyle(fontSize: 13),
+                  ),
+                  const SizedBox(height: 10),
+                  Text(
+                    _lang(dialogContext, 'الأصناف', 'Items'),
+                    style: Theme.of(dialogContext).textTheme.titleSmall
+                        ?.copyWith(fontWeight: FontWeight.bold),
+                  ),
+                  const SizedBox(height: 6),
+                  if (items.isEmpty)
+                    Text(
+                      _lang(dialogContext, 'لا توجد أصناف', 'No items'),
+                      style: TextStyle(color: Colors.grey.shade700),
+                    )
+                  else
+                    SingleChildScrollView(
+                      scrollDirection: Axis.horizontal,
+                      child: DataTable(
+                        columns: [
+                          DataColumn(
+                            label: Text(_lang(dialogContext, 'الصنف', 'Item')),
+                          ),
+                          DataColumn(
+                            label: Text(_lang(dialogContext, 'الكمية', 'Qty')),
+                          ),
+                          DataColumn(
+                            label: Text(
+                              _lang(dialogContext, 'المجموع', 'Line total'),
+                            ),
+                          ),
+                        ],
+                        rows: items
+                            .map(
+                              (entry) => DataRow(
+                                cells: [
+                                  DataCell(Text(entry.product.name)),
+                                  DataCell(Text(entry.item.qty.toString())),
+                                  DataCell(
+                                    Text(
+                                      '₪${(entry.item.lineTotal / 100).toStringAsFixed(2)}',
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            )
+                            .toList(),
+                      ),
+                    ),
+                  const Divider(height: 18),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text(_lang(dialogContext, 'الإجمالي', 'Total')),
+                      Text(
+                        '₪${(purchase.total / 100).toStringAsFixed(2)}',
+                        style: const TextStyle(fontWeight: FontWeight.bold),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 6),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text(_lang(dialogContext, 'المدفوع', 'Paid')),
+                      Text(
+                        '₪${(purchase.paid / 100).toStringAsFixed(2)}',
+                        style: TextStyle(
+                          fontWeight: FontWeight.bold,
+                          color: Colors.green.shade700,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 6),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text(_lang(dialogContext, 'المتبقي', 'Remaining')),
+                      Text(
+                        '₪${(remaining / 100).toStringAsFixed(2)}',
+                        style: TextStyle(
+                          fontWeight: FontWeight.bold,
+                          color: remaining > 0
+                              ? Colors.red.shade700
+                              : Colors.green.shade700,
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(),
+              child: Text(_lang(dialogContext, 'إغلاق', 'Close')),
+            ),
+          ],
         );
       },
     );
@@ -675,11 +851,7 @@ class _SuppliersScreenState extends ConsumerState<SuppliersScreen> {
           builder: (context, setDialogState) {
             return AlertDialog(
               title: Text(
-                _lang(
-                  context,
-                  'قطعة ناقصة (عامة)',
-                  'Global missing item',
-                ),
+                _lang(context, 'قطعة ناقصة (عامة)', 'Global missing item'),
               ),
               content: SizedBox(
                 width: MediaQuery.of(context).size.width < 520
@@ -691,7 +863,11 @@ class _SuppliersScreenState extends ConsumerState<SuppliersScreen> {
                     TextField(
                       controller: itemController,
                       decoration: InputDecoration(
-                        labelText: _lang(context, 'اسم القطعة *', 'Item name *'),
+                        labelText: _lang(
+                          context,
+                          'اسم القطعة *',
+                          'Item name *',
+                        ),
                       ),
                     ),
                     const SizedBox(height: 12),
@@ -719,7 +895,9 @@ class _SuppliersScreenState extends ConsumerState<SuppliersScreen> {
               ),
               actions: [
                 TextButton(
-                  onPressed: isSaving ? null : () => Navigator.of(context).pop(),
+                  onPressed: isSaving
+                      ? null
+                      : () => Navigator.of(context).pop(),
                   child: Text(_lang(context, 'إلغاء', 'Cancel')),
                 ),
                 ElevatedButton(
@@ -829,7 +1007,9 @@ class _SuppliersScreenState extends ConsumerState<SuppliersScreen> {
                   notesAsync: missingNotesAsync,
                   onAddPressed: _showAddMissingProductDialog,
                   onStatusChanged: (value) {
-                    ref.read(missingProductsStatusFilterProvider.notifier).state =
+                    ref
+                            .read(missingProductsStatusFilterProvider.notifier)
+                            .state =
                         value;
                   },
                   onToggleStatus: _toggleMissingProductStatus,
@@ -839,219 +1019,235 @@ class _SuppliersScreenState extends ConsumerState<SuppliersScreen> {
                 final suppliersSection = Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                // Search and Add Button
-                Row(
-                  children: [
-                    Expanded(
-                      child: AppCard(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: AppSpacing.md,
-                        ),
-                        child: TextField(
-                          controller: _searchController,
-                          decoration: InputDecoration(
-                            hintText: _lang(
-                              context,
-                              'بحث عن مورد',
-                              'Search supplier',
+                    // Search and Add Button
+                    Row(
+                      children: [
+                        Expanded(
+                          child: AppCard(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: AppSpacing.md,
                             ),
-                            border: InputBorder.none,
-                            prefixIcon: const Icon(Icons.search),
+                            child: TextField(
+                              controller: _searchController,
+                              decoration: InputDecoration(
+                                hintText: _lang(
+                                  context,
+                                  'بحث عن مورد',
+                                  'Search supplier',
+                                ),
+                                border: InputBorder.none,
+                                prefixIcon: const Icon(Icons.search),
+                              ),
+                              onChanged: (value) {
+                                ref
+                                        .read(
+                                          suppliersSearchQueryProvider.notifier,
+                                        )
+                                        .state =
+                                    value;
+                              },
+                            ),
                           ),
-                          onChanged: (value) {
-                            ref
-                                    .read(suppliersSearchQueryProvider.notifier)
-                                    .state =
-                                value;
-                          },
                         ),
-                      ),
+                        const SizedBox(width: AppSpacing.md),
+                        GradientButton(
+                          label: _lang(context, 'إضافة', 'Add'),
+                          icon: Icons.add,
+                          onPressed: () => _showSupplierDialog(),
+                        ),
+                      ],
                     ),
-                    const SizedBox(width: AppSpacing.md),
-                    GradientButton(
-                      label: _lang(context, 'إضافة', 'Add'),
-                      icon: Icons.add,
-                      onPressed: () => _showSupplierDialog(),
-                    ),
-                  ],
-                ),
 
-                const SizedBox(height: AppSpacing.lg),
+                    const SizedBox(height: AppSpacing.lg),
 
-                // Suppliers List
-                Expanded(
-                  child: suppliersAsync.when(
-                    data: (suppliers) {
-                      if (suppliers.isEmpty) {
-                        return Center(
+                    // Suppliers List
+                    Expanded(
+                      child: suppliersAsync.when(
+                        data: (suppliers) {
+                          if (suppliers.isEmpty) {
+                            return Center(
+                              child: Column(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  Icon(
+                                    Icons.local_shipping_outlined,
+                                    size: 64,
+                                    color: Colors.grey.shade300,
+                                  ),
+                                  const SizedBox(height: AppSpacing.md),
+                                  Text(
+                                    _lang(
+                                      context,
+                                      'لا توجد موردون',
+                                      'No suppliers found',
+                                    ),
+                                    style: TextStyle(
+                                      color: Colors.grey.shade500,
+                                      fontSize: 16,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            );
+                          }
+
+                          return ListView.separated(
+                            itemCount: suppliers.length,
+                            separatorBuilder: (_, __) =>
+                                const SizedBox(height: AppSpacing.sm),
+                            itemBuilder: (context, index) {
+                              final supplier = suppliers[index];
+                              return AppCard(
+                                padding: const EdgeInsets.all(AppSpacing.md),
+                                child: ListTile(
+                                  onTap: () => _showSupplierDetails(supplier),
+                                  leading: Container(
+                                    padding: const EdgeInsets.all(8),
+                                    decoration: BoxDecoration(
+                                      color: AppColors.purple600.withOpacity(
+                                        0.1,
+                                      ),
+                                      borderRadius: BorderRadius.circular(8),
+                                    ),
+                                    child: const Icon(
+                                      Icons.local_shipping,
+                                      color: AppColors.purple600,
+                                      size: 24,
+                                    ),
+                                  ),
+                                  title: Text(
+                                    supplier.name,
+                                    style: const TextStyle(
+                                      fontWeight: FontWeight.bold,
+                                    ),
+                                  ),
+                                  subtitle: Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      if (supplier.phone != null &&
+                                          supplier.phone!.isNotEmpty)
+                                        Padding(
+                                          padding: const EdgeInsets.only(
+                                            top: 4,
+                                          ),
+                                          child: Text(supplier.phone!),
+                                        ),
+                                      if (supplier.address != null &&
+                                          supplier.address!.isNotEmpty)
+                                        Padding(
+                                          padding: const EdgeInsets.only(
+                                            top: 4,
+                                          ),
+                                          child: Text(supplier.address!),
+                                        ),
+                                    ],
+                                  ),
+                                  trailing: Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      IconButton(
+                                        tooltip: _lang(
+                                          context,
+                                          'طلبات الزبائن',
+                                          'Customer requests',
+                                        ),
+                                        onPressed: () =>
+                                            Navigator.of(context).push(
+                                              MaterialPageRoute(
+                                                builder: (_) =>
+                                                    SupplierRequestsScreen(
+                                                      supplier: supplier,
+                                                    ),
+                                              ),
+                                            ),
+                                        icon: const Icon(
+                                          Icons.playlist_add_check,
+                                        ),
+                                      ),
+                                      PopupMenuButton(
+                                        itemBuilder: (context) => [
+                                          PopupMenuItem(
+                                            child: Text(
+                                              _lang(
+                                                context,
+                                                'طلبات الزبائن',
+                                                'Customer requests',
+                                              ),
+                                            ),
+                                            onTap: () => Future.delayed(
+                                              Duration.zero,
+                                              () => Navigator.of(context).push(
+                                                MaterialPageRoute(
+                                                  builder: (_) =>
+                                                      SupplierRequestsScreen(
+                                                        supplier: supplier,
+                                                      ),
+                                                ),
+                                              ),
+                                            ),
+                                          ),
+                                          PopupMenuItem(
+                                            child: Text(
+                                              _lang(context, 'تعديل', 'Edit'),
+                                            ),
+                                            onTap: () => Future.delayed(
+                                              Duration.zero,
+                                              () => _showSupplierDialog(
+                                                supplier: supplier,
+                                              ),
+                                            ),
+                                          ),
+                                          PopupMenuItem(
+                                            child: Text(
+                                              _lang(context, 'حذف', 'Delete'),
+                                              style: TextStyle(
+                                                color: Colors.red,
+                                              ),
+                                            ),
+                                            onTap: () => Future.delayed(
+                                              Duration.zero,
+                                              () => _deleteSupplier(supplier),
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ],
+                                  ),
+                                  contentPadding: EdgeInsets.zero,
+                                ),
+                              );
+                            },
+                          );
+                        },
+                        error: (error, stack) => Center(
                           child: Column(
                             mainAxisAlignment: MainAxisAlignment.center,
                             children: [
                               Icon(
-                                Icons.local_shipping_outlined,
+                                Icons.error_outline,
                                 size: 64,
-                                color: Colors.grey.shade300,
+                                color: Colors.red.shade300,
                               ),
                               const SizedBox(height: AppSpacing.md),
                               Text(
                                 _lang(
                                   context,
-                                  'لا توجد موردون',
-                                  'No suppliers found',
+                                  'فشل تحميل الموردون',
+                                  'Failed to load suppliers',
                                 ),
                                 style: TextStyle(
-                                  color: Colors.grey.shade500,
+                                  color: Colors.red.shade600,
                                   fontSize: 16,
                                 ),
                               ),
                             ],
                           ),
-                        );
-                      }
-
-                      return ListView.separated(
-                        itemCount: suppliers.length,
-                        separatorBuilder: (_, __) =>
-                            const SizedBox(height: AppSpacing.sm),
-                        itemBuilder: (context, index) {
-                          final supplier = suppliers[index];
-                          return AppCard(
-                            padding: const EdgeInsets.all(AppSpacing.md),
-                            child: ListTile(
-                              onTap: () => _showSupplierDetails(supplier),
-                              leading: Container(
-                                padding: const EdgeInsets.all(8),
-                                decoration: BoxDecoration(
-                                  color: AppColors.purple600.withOpacity(0.1),
-                                  borderRadius: BorderRadius.circular(8),
-                                ),
-                                child: const Icon(
-                                  Icons.local_shipping,
-                                  color: AppColors.purple600,
-                                  size: 24,
-                                ),
-                              ),
-                              title: Text(
-                                supplier.name,
-                                style: const TextStyle(
-                                  fontWeight: FontWeight.bold,
-                                ),
-                              ),
-                              subtitle: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  if (supplier.phone != null &&
-                                      supplier.phone!.isNotEmpty)
-                                    Padding(
-                                      padding: const EdgeInsets.only(top: 4),
-                                      child: Text(supplier.phone!),
-                                    ),
-                                  if (supplier.address != null &&
-                                      supplier.address!.isNotEmpty)
-                                    Padding(
-                                      padding: const EdgeInsets.only(top: 4),
-                                      child: Text(supplier.address!),
-                                    ),
-                                ],
-                              ),
-                              trailing: Row(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  IconButton(
-                                    tooltip: _lang(
-                                      context,
-                                      'طلبات الزبائن',
-                                      'Customer requests',
-                                    ),
-                                    onPressed: () => Navigator.of(context).push(
-                                      MaterialPageRoute(
-                                        builder: (_) => SupplierRequestsScreen(
-                                          supplier: supplier,
-                                        ),
-                                      ),
-                                    ),
-                                    icon: const Icon(Icons.playlist_add_check),
-                                  ),
-                                  PopupMenuButton(
-                                    itemBuilder: (context) => [
-                                  PopupMenuItem(
-                                    child: Text(
-                                      _lang(
-                                        context,
-                                        'طلبات الزبائن',
-                                        'Customer requests',
-                                      ),
-                                    ),
-                                    onTap: () => Future.delayed(
-                                      Duration.zero,
-                                      () => Navigator.of(context).push(
-                                        MaterialPageRoute(
-                                          builder: (_) => SupplierRequestsScreen(
-                                            supplier: supplier,
-                                          ),
-                                        ),
-                                      ),
-                                    ),
-                                  ),
-                                  PopupMenuItem(
-                                    child: Text(
-                                      _lang(context, 'تعديل', 'Edit'),
-                                    ),
-                                    onTap: () => Future.delayed(
-                                      Duration.zero,
-                                      () => _showSupplierDialog(
-                                        supplier: supplier,
-                                      ),
-                                    ),
-                                  ),
-                                  PopupMenuItem(
-                                    child: Text(
-                                      _lang(context, 'حذف', 'Delete'),
-                                      style: TextStyle(color: Colors.red),
-                                    ),
-                                    onTap: () => Future.delayed(
-                                      Duration.zero,
-                                      () => _deleteSupplier(supplier),
-                                    ),
-                                  ),
-                                    ],
-                                  ),
-                                ],
-                              ),
-                              contentPadding: EdgeInsets.zero,
-                            ),
-                          );
-                        },
-                      );
-                    },
-                    error: (error, stack) => Center(
-                      child: Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Icon(
-                            Icons.error_outline,
-                            size: 64,
-                            color: Colors.red.shade300,
-                          ),
-                          const SizedBox(height: AppSpacing.md),
-                          Text(
-                            _lang(
-                              context,
-                              'فشل تحميل الموردون',
-                              'Failed to load suppliers',
-                            ),
-                            style: TextStyle(
-                              color: Colors.red.shade600,
-                              fontSize: 16,
-                            ),
-                          ),
-                        ],
+                        ),
+                        loading: () =>
+                            const Center(child: CircularProgressIndicator()),
                       ),
                     ),
-                    loading: () =>
-                        const Center(child: CircularProgressIndicator()),
-                  ),
-                ),
                   ],
                 );
 
@@ -1120,7 +1316,10 @@ class _MissingProductsPanel extends StatelessWidget {
                   initialValue: statusFilter,
                   decoration: InputDecoration(
                     isDense: true,
-                    contentPadding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+                    contentPadding: const EdgeInsets.symmetric(
+                      horizontal: 8,
+                      vertical: 8,
+                    ),
                     border: const OutlineInputBorder(),
                     labelText: _lang(context, 'الحالة', 'Status'),
                   ),
@@ -1162,7 +1361,11 @@ class _MissingProductsPanel extends StatelessWidget {
                   return SizedBox(
                     child: Center(
                       child: Text(
-                        _lang(context, 'ما في نواقص حالياً', 'No missing items yet'),
+                        _lang(
+                          context,
+                          'ما في نواقص حالياً',
+                          'No missing items yet',
+                        ),
                         style: const TextStyle(fontSize: 12),
                       ),
                     ),
@@ -1230,7 +1433,11 @@ class _MissingProductsPanel extends StatelessWidget {
                         child: IconButton(
                           onPressed: () => onDelete(note),
                           padding: EdgeInsets.zero,
-                          icon: const Icon(Icons.delete_outline, color: Colors.red, size: 16),
+                          icon: const Icon(
+                            Icons.delete_outline,
+                            color: Colors.red,
+                            size: 16,
+                          ),
                         ),
                       ),
                     );

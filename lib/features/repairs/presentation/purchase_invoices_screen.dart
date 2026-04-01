@@ -1,10 +1,12 @@
 import 'dart:io';
 
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/formatting/money.dart';
+import '../../../core/utils/image_storage.dart';
 import '../../../core/ui/widgets/app_card.dart';
 import '../../../core/ui/widgets/app_top_bar.dart';
 import '../../../core/ui/widgets/gradient_button.dart';
@@ -31,14 +33,33 @@ class PurchaseInvoicesScreen extends ConsumerStatefulWidget {
 
 class _PurchaseInvoicesScreenState
     extends ConsumerState<PurchaseInvoicesScreen> {
+  final TextEditingController _supplierSearchController =
+      TextEditingController();
+
   String _formatDate(DateTime date) {
     return '${date.year}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')} ${date.hour.toString().padLeft(2, '0')}:${date.minute.toString().padLeft(2, '0')}';
+  }
+
+  String _formatDateOnly(DateTime date) {
+    return '${date.year}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}';
+  }
+
+  @override
+  void dispose() {
+    _supplierSearchController.dispose();
+    super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
     final purchasesAsync = ref.watch(purchasesAndPaymentsProvider);
     final selectedDate = ref.watch(purchaseDateFilterProvider);
+    final selectedDateRange = ref.watch(purchaseDateRangeFilterProvider);
+    final supplierQuery = ref.watch(purchaseSupplierSearchProvider);
+    final hasActiveFilters =
+        selectedDate != null ||
+        selectedDateRange != null ||
+        supplierQuery.trim().isNotEmpty;
 
     return GradientScaffold(
       appBar: AppTopBar(
@@ -52,59 +73,119 @@ class _PurchaseInvoicesScreenState
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                // Date Filter Row
-                SizedBox(
-                  height: 50,
-                  child: Row(
-                    children: [
-                      Expanded(
-                        flex: 1,
-                        child: OutlinedButton.icon(
-                          onPressed: () async {
-                            final date = await showDatePicker(
-                              context: context,
-                              initialDate: selectedDate ?? DateTime.now(),
-                              firstDate: DateTime(2020),
-                              lastDate: DateTime.now().add(
-                                const Duration(days: 365),
-                              ),
-                            );
-                            if (date != null) {
-                              ref
-                                      .read(purchaseDateFilterProvider.notifier)
-                                      .state =
-                                  date;
-                            }
-                          },
-                          icon: const Icon(Icons.calendar_today),
-                          label: Text(
-                            selectedDate != null
-                                ? _lang(
-                                    context,
-                                    'تاريخ: ${selectedDate.year}-${selectedDate.month.toString().padLeft(2, '0')}-${selectedDate.day.toString().padLeft(2, '0')}',
-                                    'Date: ${selectedDate.year}-${selectedDate.month.toString().padLeft(2, '0')}-${selectedDate.day.toString().padLeft(2, '0')}',
+                // Filters
+                Row(
+                  children: [
+                    Expanded(
+                      flex: 2,
+                      child: AppCard(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: AppSpacing.md,
+                        ),
+                        child: TextField(
+                          controller: _supplierSearchController,
+                          decoration: InputDecoration(
+                            hintText: _lang(
+                              context,
+                              'فلتر باسم المورد',
+                              'Filter by supplier name',
+                            ),
+                            border: InputBorder.none,
+                            prefixIcon: const Icon(Icons.search),
+                            suffixIcon: supplierQuery.trim().isNotEmpty
+                                ? IconButton(
+                                    onPressed: () {
+                                      _supplierSearchController.clear();
+                                      ref
+                                              .read(
+                                                purchaseSupplierSearchProvider
+                                                    .notifier,
+                                              )
+                                              .state =
+                                          '';
+                                    },
+                                    icon: const Icon(Icons.clear),
                                   )
-                                : _lang(context, 'اختر التاريخ', 'Select Date'),
+                                : null,
                           ),
+                          onChanged: (value) {
+                            ref
+                                    .read(
+                                      purchaseSupplierSearchProvider.notifier,
+                                    )
+                                    .state =
+                                value;
+                          },
                         ),
                       ),
-                      if (selectedDate != null) ...[
-                        const SizedBox(width: 8),
-                        ElevatedButton.icon(
-                          onPressed: () {
+                    ),
+                    const SizedBox(width: AppSpacing.md),
+                    Expanded(
+                      flex: 2,
+                      child: OutlinedButton.icon(
+                        onPressed: () async {
+                          final range = await showDateRangePicker(
+                            context: context,
+                            firstDate: DateTime(2020),
+                            lastDate: DateTime.now().add(
+                              const Duration(days: 365),
+                            ),
+                            initialDateRange: selectedDateRange,
+                          );
+                          if (range != null) {
+                            ref
+                                    .read(
+                                      purchaseDateRangeFilterProvider.notifier,
+                                    )
+                                    .state =
+                                range;
                             ref
                                     .read(purchaseDateFilterProvider.notifier)
                                     .state =
                                 null;
-                          },
-                          icon: const Icon(Icons.clear),
-                          label: Text(
-                            _lang(context, 'مسح الفلتر', 'Clear Filter'),
-                          ),
+                          }
+                        },
+                        icon: const Icon(Icons.date_range),
+                        label: Text(
+                          selectedDateRange != null
+                              ? _lang(
+                                  context,
+                                  'من ${_formatDateOnly(selectedDateRange.start)} إلى ${_formatDateOnly(selectedDateRange.end)}',
+                                  'From ${_formatDateOnly(selectedDateRange.start)} to ${_formatDateOnly(selectedDateRange.end)}',
+                                )
+                              : _lang(
+                                  context,
+                                  'اختر من/إلى',
+                                  'Select date range',
+                                ),
                         ),
-                      ],
+                      ),
+                    ),
+                    if (hasActiveFilters) ...[
+                      const SizedBox(width: AppSpacing.md),
+                      ElevatedButton.icon(
+                        onPressed: () {
+                          _supplierSearchController.clear();
+                          ref
+                                  .read(purchaseSupplierSearchProvider.notifier)
+                                  .state =
+                              '';
+                          ref
+                                  .read(
+                                    purchaseDateRangeFilterProvider.notifier,
+                                  )
+                                  .state =
+                              null;
+                          ref.read(purchaseDateFilterProvider.notifier).state =
+                              null;
+                        },
+                        icon: const Icon(Icons.clear),
+                        label: Text(
+                          _lang(context, 'مسح الفلاتر', 'Clear Filters'),
+                        ),
+                      ),
                     ],
-                  ),
+                  ],
                 ),
                 const SizedBox(height: AppSpacing.md),
 
@@ -174,6 +255,23 @@ class _PurchaseInvoicesScreenState
                               ],
                             ),
                           ),
+                        );
+                      }
+
+                      if (hasActiveFilters) {
+                        return Column(
+                          children: [
+                            Expanded(
+                              child: _PurchaseReportTableCard(
+                                items: purchases,
+                                formatDate: _formatDate,
+                                onPurchaseTap: (purchaseId) =>
+                                    _showPurchaseDetails(purchaseId),
+                                onPaymentTap: (payment) =>
+                                    _showPaymentDetails(payment),
+                              ),
+                            ),
+                          ],
                         );
                       }
 
@@ -315,7 +413,9 @@ class _PurchaseInvoicesScreenState
         ref.invalidate(supplierPaymentsProvider(payment.supplierId!));
         ref.invalidate(supplierTotalPaymentsProvider(payment.supplierId!));
         ref.invalidate(supplierSummaryProvider(payment.supplierId!));
-        ref.invalidate(supplierPurchasesAndPaymentsProvider(payment.supplierId!));
+        ref.invalidate(
+          supplierPurchasesAndPaymentsProvider(payment.supplierId!),
+        );
       }
     }
   }
@@ -569,6 +669,238 @@ class _PaymentCard extends StatelessWidget {
           ],
         ),
       ),
+    );
+  }
+}
+
+class _PurchaseReportTableCard extends StatelessWidget {
+  final List<PurchaseOrPayment> items;
+  final String Function(DateTime) formatDate;
+  final ValueChanged<String> onPurchaseTap;
+  final ValueChanged<PurchaseOrPayment> onPaymentTap;
+
+  const _PurchaseReportTableCard({
+    required this.items,
+    required this.formatDate,
+    required this.onPurchaseTap,
+    required this.onPaymentTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final purchaseRows = items
+        .where((item) => item.type == 'purchase')
+        .toList();
+    final totalDue = purchaseRows.fold<int>(
+      0,
+      (sum, item) => sum + item.balance,
+    );
+    final totalPurchased = purchaseRows.fold<int>(
+      0,
+      (sum, item) => sum + item.total,
+    );
+    final totalPaid = purchaseRows.fold<int>(0, (sum, item) => sum + item.paid);
+
+    return AppCard(
+      padding: const EdgeInsets.all(AppSpacing.md),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            children: [
+              const Icon(Icons.table_chart, color: AppColors.blue600),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  _lang(context, 'جدول التفاصيل', 'Details Table'),
+                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ),
+              Text(
+                _lang(
+                  context,
+                  'عدد السجلات: ${items.length}',
+                  'Records: ${items.length}',
+                ),
+                style: TextStyle(color: Colors.grey.shade600, fontSize: 12),
+              ),
+            ],
+          ),
+          const SizedBox(height: AppSpacing.md),
+          Container(
+            padding: const EdgeInsets.all(AppSpacing.md),
+            decoration: BoxDecoration(
+              color: Colors.blueGrey.withOpacity(0.08),
+              borderRadius: BorderRadius.circular(AppRadius.sm),
+              border: Border.all(color: Colors.blueGrey.withOpacity(0.18)),
+            ),
+            child: Row(
+              children: [
+                Expanded(
+                  child: _SummaryStat(
+                    label: _lang(
+                      context,
+                      'إجمالي المشتريات',
+                      'Total purchases',
+                    ),
+                    value: formatMoneyCents(totalPurchased),
+                  ),
+                ),
+                Expanded(
+                  child: _SummaryStat(
+                    label: _lang(context, 'المدفوع', 'Paid'),
+                    value: formatMoneyCents(totalPaid),
+                  ),
+                ),
+                Expanded(
+                  child: _SummaryStat(
+                    label: _lang(context, 'كم بدو مني', 'Amount owed'),
+                    value: formatMoneyCents(totalDue),
+                    valueColor: Colors.red.shade400,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: AppSpacing.md),
+          Expanded(
+            child: Scrollbar(
+              thumbVisibility: true,
+              child: SingleChildScrollView(
+                scrollDirection: Axis.horizontal,
+                child: SingleChildScrollView(
+                  child: DataTable(
+                    headingRowColor: WidgetStatePropertyAll(
+                      Colors.grey.shade100,
+                    ),
+                    columns: [
+                      DataColumn(
+                        label: Text(_lang(context, 'التاريخ', 'Date')),
+                      ),
+                      DataColumn(
+                        label: Text(_lang(context, 'المورد', 'Supplier')),
+                      ),
+                      DataColumn(label: Text(_lang(context, 'النوع', 'Type'))),
+                      DataColumn(
+                        label: Text(_lang(context, 'المرجع', 'Reference')),
+                      ),
+                      DataColumn(
+                        label: Text(_lang(context, 'الإجمالي', 'Total')),
+                      ),
+                      DataColumn(
+                        label: Text(_lang(context, 'المدفوع', 'Paid')),
+                      ),
+                      DataColumn(
+                        label: Text(_lang(context, 'المتبقي', 'Remaining')),
+                      ),
+                      DataColumn(label: Text(_lang(context, 'عرض', 'Open'))),
+                    ],
+                    rows: items.map((item) {
+                      final isPurchase = item.type == 'purchase';
+                      final remaining = item.balance;
+                      return DataRow(
+                        onSelectChanged: (_) {
+                          if (isPurchase) {
+                            onPurchaseTap(item.id);
+                          } else {
+                            onPaymentTap(item);
+                          }
+                        },
+                        cells: [
+                          DataCell(Text(formatDate(item.createdAt))),
+                          DataCell(Text(item.supplierName ?? '-')),
+                          DataCell(
+                            Text(
+                              isPurchase
+                                  ? _lang(context, 'فاتورة', 'Invoice')
+                                  : _lang(context, 'دفعة', 'Payment'),
+                            ),
+                          ),
+                          DataCell(
+                            Text(
+                              isPurchase
+                                  ? (item.invoiceNumber ?? '-')
+                                  : (item.description?.isNotEmpty == true
+                                        ? item.description!
+                                        : '-'),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                          DataCell(Text(formatMoneyCents(item.total))),
+                          DataCell(Text(formatMoneyCents(item.paid))),
+                          DataCell(
+                            Text(
+                              isPurchase ? formatMoneyCents(remaining) : '-',
+                            ),
+                          ),
+                          DataCell(
+                            IconButton(
+                              onPressed: () {
+                                if (isPurchase) {
+                                  onPurchaseTap(item.id);
+                                } else {
+                                  onPaymentTap(item);
+                                }
+                              },
+                              icon: const Icon(Icons.open_in_new),
+                              tooltip: _lang(
+                                context,
+                                'فتح التفاصيل',
+                                'Open details',
+                              ),
+                            ),
+                          ),
+                        ],
+                      );
+                    }).toList(),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _SummaryStat extends StatelessWidget {
+  final String label;
+  final String value;
+  final Color? valueColor;
+
+  const _SummaryStat({
+    required this.label,
+    required this.value,
+    this.valueColor,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          label,
+          style: TextStyle(
+            color: Colors.grey.shade600,
+            fontSize: 11,
+            fontWeight: FontWeight.w500,
+          ),
+        ),
+        const SizedBox(height: 4),
+        Text(
+          value,
+          style: TextStyle(
+            color: valueColor ?? AppColors.blue600,
+            fontWeight: FontWeight.bold,
+            fontSize: 16,
+          ),
+        ),
+      ],
     );
   }
 }
@@ -1102,7 +1434,11 @@ class _PaymentDetailsDialog extends ConsumerWidget {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(
-              _lang(context, 'تم إرجاع الدفعة بنجاح', 'Payment reversed successfully'),
+              _lang(
+                context,
+                'تم إرجاع الدفعة بنجاح',
+                'Payment reversed successfully',
+              ),
             ),
             backgroundColor: Colors.green,
           ),
@@ -1596,7 +1932,9 @@ class _NewPurchaseDialogState extends ConsumerState<_NewPurchaseDialog> {
                         decoration: BoxDecoration(
                           color: Theme.of(context).cardColor,
                           borderRadius: BorderRadius.circular(AppRadius.md),
-                          border: Border.all(color: Colors.white.withOpacity(0.06)),
+                          border: Border.all(
+                            color: Colors.white.withOpacity(0.06),
+                          ),
                           boxShadow: AppShadows.soft,
                         ),
                         child: Center(
@@ -1630,7 +1968,9 @@ class _NewPurchaseDialogState extends ConsumerState<_NewPurchaseDialog> {
                       decoration: BoxDecoration(
                         color: Theme.of(context).cardColor,
                         borderRadius: BorderRadius.circular(AppRadius.sm),
-                        border: Border.all(color: Colors.white.withOpacity(0.06)),
+                        border: Border.all(
+                          color: Colors.white.withOpacity(0.06),
+                        ),
                         boxShadow: AppShadows.soft,
                       ),
                       child: Column(
@@ -1640,7 +1980,10 @@ class _NewPurchaseDialogState extends ConsumerState<_NewPurchaseDialog> {
                             children: [
                               Text(
                                 _lang(context, 'الإجمالي', 'Total'),
-                                style: const TextStyle(fontSize: 16, color: Colors.white),
+                                style: const TextStyle(
+                                  fontSize: 16,
+                                  color: Colors.white,
+                                ),
                               ),
                               Text(
                                 formatMoneyCents(total),
@@ -1794,37 +2137,497 @@ class _LineItemRowState extends ConsumerState<_LineItemRow> {
     return (parsed * 100).round();
   }
 
+  Future<Product?> _showCreateProductDialog({String initialName = ''}) async {
+    final db = ref.read(dbProvider);
+    final newProductId = 'prd_${DateTime.now().microsecondsSinceEpoch}';
+    final nameController = TextEditingController(text: initialName);
+    final barcodeController = TextEditingController();
+    final costController = TextEditingController();
+    final sellController = TextEditingController();
+    final qtyController = TextEditingController(text: '0');
+    final categoryOptions = <String>[
+      _lang(context, 'اكسيسوارات', 'Accessories'),
+      _lang(context, 'أجهزه محموله', 'Mobile Devices'),
+      _lang(context, 'لزقات ماكنه', 'Machine Stickers'),
+      _lang(context, 'قطع صيانه', 'Spare Parts'),
+    ];
+    String selectedCategory = categoryOptions.last;
+    bool trackImei = false;
+    String? selectedImagePath;
+    var isSaving = false;
+    Product? createdProduct;
+
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) {
+        return StatefulBuilder(
+          builder: (dialogContext, setDialogState) {
+            return AlertDialog(
+              title: Text(
+                _lang(context, 'إضافة قطعة جديدة', 'Add New Product'),
+              ),
+              content: SizedBox(
+                width: MediaQuery.of(context).size.width < 520
+                    ? MediaQuery.of(context).size.width * 0.9
+                    : 420,
+                child: SingleChildScrollView(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      TextField(
+                        controller: nameController,
+                        decoration: InputDecoration(
+                          labelText: _lang(
+                            context,
+                            'اسم القطعة',
+                            'Product name',
+                          ),
+                          border: const OutlineInputBorder(),
+                        ),
+                      ),
+                      const SizedBox(height: 10),
+                      TextField(
+                        controller: barcodeController,
+                        decoration: InputDecoration(
+                          labelText: _lang(
+                            context,
+                            'الباركود (اختياري)',
+                            'Barcode (optional)',
+                          ),
+                          border: const OutlineInputBorder(),
+                        ),
+                      ),
+                      const SizedBox(height: 10),
+                      DropdownButtonFormField<String>(
+                        initialValue: selectedCategory,
+                        decoration: InputDecoration(
+                          labelText: _lang(context, 'التصنيف', 'Category'),
+                          border: const OutlineInputBorder(),
+                        ),
+                        items: categoryOptions
+                            .map(
+                              (category) => DropdownMenuItem(
+                                value: category,
+                                child: Text(category),
+                              ),
+                            )
+                            .toList(),
+                        onChanged: (value) {
+                          if (value != null) {
+                            setDialogState(() {
+                              selectedCategory = value;
+                            });
+                          }
+                        },
+                      ),
+                      const SizedBox(height: 10),
+                      TextField(
+                        controller: sellController,
+                        keyboardType: const TextInputType.numberWithOptions(
+                          decimal: true,
+                        ),
+                        inputFormatters: [
+                          FilteringTextInputFormatter.allow(RegExp(r'[0-9.,]')),
+                        ],
+                        decoration: InputDecoration(
+                          labelText: _lang(context, 'سعر البيع', 'Sell price'),
+                          border: const OutlineInputBorder(),
+                          suffixText: '₪',
+                        ),
+                      ),
+                      const SizedBox(height: 10),
+                      TextField(
+                        controller: costController,
+                        keyboardType: const TextInputType.numberWithOptions(
+                          decimal: true,
+                        ),
+                        inputFormatters: [
+                          FilteringTextInputFormatter.allow(RegExp(r'[0-9.,]')),
+                        ],
+                        decoration: InputDecoration(
+                          labelText: _lang(context, 'سعر الشراء', 'Cost price'),
+                          border: const OutlineInputBorder(),
+                          suffixText: '₪',
+                        ),
+                      ),
+                      const SizedBox(height: 10),
+                      TextField(
+                        controller: qtyController,
+                        keyboardType: TextInputType.number,
+                        inputFormatters: [
+                          FilteringTextInputFormatter.digitsOnly,
+                        ],
+                        decoration: InputDecoration(
+                          labelText: _lang(context, 'الكمية', 'Quantity'),
+                          border: const OutlineInputBorder(),
+                        ),
+                      ),
+                      const SizedBox(height: 6),
+                      SwitchListTile(
+                        contentPadding: EdgeInsets.zero,
+                        title: const Text('Track IMEI'),
+                        value: trackImei,
+                        onChanged: (value) {
+                          setDialogState(() => trackImei = value);
+                        },
+                      ),
+                      const SizedBox(height: 10),
+                      Text(
+                        _lang(context, 'صورة المنتج', 'Product Image'),
+                        style: Theme.of(context).textTheme.titleSmall,
+                      ),
+                      const SizedBox(height: 8),
+                      if (selectedImagePath != null &&
+                          selectedImagePath!.isNotEmpty)
+                        Container(
+                          width: double.infinity,
+                          height: 120,
+                          decoration: BoxDecoration(
+                            border: Border.all(
+                              color: Theme.of(context).dividerColor,
+                            ),
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: Image.file(
+                            File(selectedImagePath!),
+                            fit: BoxFit.cover,
+                            errorBuilder: (_, __, ___) => Container(
+                              color: Theme.of(
+                                context,
+                              ).colorScheme.surfaceContainerHighest,
+                              child: Icon(
+                                Icons.broken_image_outlined,
+                                color: Theme.of(
+                                  context,
+                                ).colorScheme.onSurfaceVariant,
+                              ),
+                            ),
+                          ),
+                        )
+                      else
+                        Container(
+                          width: double.infinity,
+                          height: 120,
+                          decoration: BoxDecoration(
+                            color: Theme.of(
+                              context,
+                            ).colorScheme.surfaceContainerHighest,
+                            border: Border.all(
+                              color: Theme.of(context).dividerColor,
+                            ),
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: Icon(
+                            Icons.image_outlined,
+                            color: Theme.of(context).disabledColor,
+                            size: 40,
+                          ),
+                        ),
+                      const SizedBox(height: 8),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: ElevatedButton.icon(
+                              onPressed: () async {
+                                final result = await FilePicker.platform
+                                    .pickFiles(
+                                      type: FileType.image,
+                                      allowMultiple: false,
+                                    );
+
+                                if (result != null &&
+                                    result.files.isNotEmpty &&
+                                    result.files.first.path != null) {
+                                  try {
+                                    final savedPath =
+                                        await ImageStorage.saveProductImage(
+                                          newProductId,
+                                          result.files.first,
+                                        );
+                                    setDialogState(() {
+                                      selectedImagePath = savedPath;
+                                    });
+                                  } catch (e) {
+                                    if (!dialogContext.mounted) return;
+                                    ScaffoldMessenger.of(context).showSnackBar(
+                                      SnackBar(content: Text('Failed: $e')),
+                                    );
+                                  }
+                                }
+                              },
+                              icon: const Icon(Icons.image, size: 18),
+                              label: Text(_lang(context, 'اختر', 'Choose')),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          if (selectedImagePath != null &&
+                              selectedImagePath!.isNotEmpty)
+                            Expanded(
+                              child: ElevatedButton.icon(
+                                onPressed: () async {
+                                  await ImageStorage.deleteProductImage(
+                                    selectedImagePath,
+                                  );
+                                  setDialogState(() {
+                                    selectedImagePath = null;
+                                  });
+                                },
+                                icon: const Icon(Icons.delete, size: 18),
+                                label: Text(_lang(context, 'حذف', 'Remove')),
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: Colors.red.shade600,
+                                  foregroundColor: Colors.white,
+                                ),
+                              ),
+                            ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: isSaving
+                      ? null
+                      : () => Navigator.of(dialogContext).pop(),
+                  child: Text(_lang(context, 'إلغاء', 'Cancel')),
+                ),
+                ElevatedButton(
+                  onPressed: isSaving
+                      ? null
+                      : () async {
+                          final name = nameController.text.trim();
+                          final cost = _parseMoneyToIlsCents(
+                            costController.text,
+                          );
+                          final sellInput = _parseMoneyToIlsCents(
+                            sellController.text,
+                          );
+                          final qty = int.tryParse(qtyController.text) ?? 0;
+                          final category = selectedCategory;
+                          final barcode = barcodeController.text.trim();
+
+                          if (name.isEmpty || cost <= 0) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(
+                                content: Text(
+                                  _lang(
+                                    context,
+                                    'أدخل الاسم وسعر الشراء بشكل صحيح',
+                                    'Enter valid name and cost',
+                                  ),
+                                ),
+                              ),
+                            );
+                            return;
+                          }
+
+                          setDialogState(() => isSaving = true);
+                          try {
+                            final sellPrice = sellInput > 0 ? sellInput : cost;
+
+                            await db.addProduct(
+                              id: newProductId,
+                              name: name,
+                              barcode: barcode.isEmpty ? null : barcode,
+                              category: category,
+                              sellPrice: sellPrice,
+                              costPrice: cost,
+                              qty: qty,
+                              trackImei: trackImei,
+                              imagePath: selectedImagePath,
+                            );
+
+                            final products = await db.searchProducts(name);
+                            for (final product in products) {
+                              if (product.id == newProductId) {
+                                createdProduct = product;
+                                break;
+                              }
+                            }
+
+                            if (!dialogContext.mounted) return;
+                            Navigator.of(dialogContext).pop();
+                          } catch (e) {
+                            if (!dialogContext.mounted) return;
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(content: Text('Failed: $e')),
+                            );
+                          } finally {
+                            if (dialogContext.mounted) {
+                              setDialogState(() => isSaving = false);
+                            }
+                          }
+                        },
+                  child: isSaving
+                      ? const SizedBox(
+                          width: 18,
+                          height: 18,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : Text(_lang(context, 'حفظ القطعة', 'Save Product')),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+
+    nameController.dispose();
+    barcodeController.dispose();
+    costController.dispose();
+    sellController.dispose();
+    qtyController.dispose();
+    return createdProduct;
+  }
+
   Future<void> _selectProduct() async {
     final db = ref.read(dbProvider);
-    final products = await db.searchProducts('');
+    final searchController = TextEditingController();
+    var query = '';
 
     if (!mounted) return;
 
     final selectedProduct = await showDialog<Product>(
       context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Select Product'),
-        content: SizedBox(
-          width: MediaQuery.of(context).size.width < 520
-              ? MediaQuery.of(context).size.width * 0.9
-              : 400,
-          height: (MediaQuery.of(context).size.height * 0.6)
-              .clamp(260.0, 400.0)
-              .toDouble(),
-          child: ListView.builder(
-            itemCount: products.length,
-            itemBuilder: (context, index) {
-              final product = products[index];
-              return ListTile(
-                title: Text(product.name),
-                subtitle: Text(product.category),
-                onTap: () => Navigator.of(context).pop(product),
-              );
-            },
-          ),
-        ),
-      ),
+      builder: (dialogContext) {
+        return StatefulBuilder(
+          builder: (dialogContext, setDialogState) {
+            return AlertDialog(
+              title: Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      _lang(context, 'اختيار قطعة', 'Select Product'),
+                    ),
+                  ),
+                  TextButton.icon(
+                    onPressed: () async {
+                      final created = await _showCreateProductDialog(
+                        initialName: searchController.text.trim(),
+                      );
+                      if (created == null || !dialogContext.mounted) return;
+                      Navigator.of(dialogContext).pop(created);
+                    },
+                    icon: const Icon(Icons.add, size: 18),
+                    label: Text(_lang(context, 'قطعة جديدة', 'New Product')),
+                  ),
+                ],
+              ),
+              content: SizedBox(
+                width: MediaQuery.of(context).size.width < 520
+                    ? MediaQuery.of(context).size.width * 0.9
+                    : 460,
+                height: (MediaQuery.of(context).size.height * 0.65)
+                    .clamp(280.0, 460.0)
+                    .toDouble(),
+                child: Column(
+                  children: [
+                    TextField(
+                      controller: searchController,
+                      decoration: InputDecoration(
+                        hintText: _lang(
+                          context,
+                          'ابحث باسم القطعة أو الباركود',
+                          'Search by name or barcode',
+                        ),
+                        prefixIcon: const Icon(Icons.search),
+                        border: const OutlineInputBorder(),
+                      ),
+                      onChanged: (value) {
+                        setDialogState(() {
+                          query = value.trim();
+                        });
+                      },
+                    ),
+                    const SizedBox(height: 10),
+                    Expanded(
+                      child: FutureBuilder<List<Product>>(
+                        future: db.searchProducts(query),
+                        builder: (context, snapshot) {
+                          if (snapshot.connectionState ==
+                              ConnectionState.waiting) {
+                            return const Center(
+                              child: CircularProgressIndicator(),
+                            );
+                          }
+
+                          final products = snapshot.data ?? [];
+                          if (products.isEmpty) {
+                            return Center(
+                              child: Column(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  Text(
+                                    _lang(
+                                      context,
+                                      'لا توجد نتائج',
+                                      'No matching products',
+                                    ),
+                                  ),
+                                  const SizedBox(height: 8),
+                                  OutlinedButton.icon(
+                                    onPressed: () async {
+                                      final created =
+                                          await _showCreateProductDialog(
+                                            initialName: searchController.text
+                                                .trim(),
+                                          );
+                                      if (created == null ||
+                                          !dialogContext.mounted) {
+                                        return;
+                                      }
+                                      Navigator.of(dialogContext).pop(created);
+                                    },
+                                    icon: const Icon(Icons.add),
+                                    label: Text(
+                                      _lang(
+                                        context,
+                                        'إضافة القطعة',
+                                        'Add this product',
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            );
+                          }
+
+                          return ListView.builder(
+                            itemCount: products.length,
+                            itemBuilder: (context, index) {
+                              final product = products[index];
+                              return ListTile(
+                                title: Text(product.name),
+                                subtitle: Text(
+                                  '${product.category} • ${_lang(context, 'متوفر', 'Stock')}: ${product.qty}',
+                                ),
+                                trailing: Text(
+                                  formatMoneyCents(product.costPrice),
+                                  style: const TextStyle(
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                                onTap: () =>
+                                    Navigator.of(dialogContext).pop(product),
+                              );
+                            },
+                          );
+                        },
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            );
+          },
+        );
+      },
     );
+
+    searchController.dispose();
 
     if (selectedProduct != null) {
       setState(() {

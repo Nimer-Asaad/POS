@@ -1235,6 +1235,29 @@ class AppDatabase extends _$AppDatabase {
     return result.length;
   }
 
+  Future<int> getWithdrawnPartsCapital(DateTime from, DateTime to) async {
+    final rows =
+        await (select(stockMovements).join([
+              innerJoin(
+                products,
+                products.id.equalsExp(stockMovements.productId),
+              ),
+            ])..where(
+              stockMovements.type.equals('out') &
+                  stockMovements.createdAt.isBetweenValues(from, to),
+            ))
+            .get();
+
+    var totalCapital = 0;
+    for (final row in rows) {
+      final movement = row.readTable(stockMovements);
+      final product = row.readTable(products);
+      totalCapital += movement.qtyDelta.abs() * product.costPrice;
+    }
+
+    return totalCapital;
+  }
+
   Future<List<Repair>> getOverdueRepairs(DateTime threshold) {
     return (select(repairs)
           ..where(
@@ -2148,7 +2171,9 @@ class AppDatabase extends _$AppDatabase {
   }
 
   Future<void> deleteMissingProductNote(String id) async {
-    await customStatement('DELETE FROM missing_products_notes WHERE id = ?', [id]);
+    await customStatement('DELETE FROM missing_products_notes WHERE id = ?', [
+      id,
+    ]);
   }
 
   // Get all purchases from a specific supplier with their items
@@ -3555,14 +3580,16 @@ class AppDatabase extends _$AppDatabase {
       }
 
       const maxItemsInDescription = 4;
-      final visibleItems = saleItemSummaries.take(maxItemsInDescription).toList();
+      final visibleItems = saleItemSummaries
+          .take(maxItemsInDescription)
+          .toList();
       final hiddenItemsCount = saleItemSummaries.length - visibleItems.length;
       final itemsSummary = visibleItems.join(', ');
       final saleDescription = itemsSummary.isEmpty
           ? 'Payment: ${sale.paymentType}'
           : hiddenItemsCount > 0
-              ? '$itemsSummary +$hiddenItemsCount more • Payment: ${sale.paymentType}'
-              : '$itemsSummary • Payment: ${sale.paymentType}';
+          ? '$itemsSummary +$hiddenItemsCount more • Payment: ${sale.paymentType}'
+          : '$itemsSummary • Payment: ${sale.paymentType}';
 
       // Subtract discount from profit
       // The discount reduces the profit, not just the revenue

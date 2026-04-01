@@ -1,3 +1,4 @@
+import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../data/db/app_database.dart';
@@ -6,22 +7,32 @@ import '../../../providers/db_provider.dart';
 // Date filter for purchases
 final purchaseDateFilterProvider = StateProvider<DateTime?>((ref) => null);
 
+// Purchase invoice filters
+final purchaseSupplierSearchProvider = StateProvider<String>((ref) => '');
+final purchaseDateRangeFilterProvider = StateProvider<DateTimeRange?>(
+  (ref) => null,
+);
+
 // Generate sequential invoice number based on date and purchases on that date
 String _generateSequentialInvoiceNumber(
   List<PurchaseOrPayment> purchases,
   PurchaseOrPayment purchase,
 ) {
   // Get all purchases for the same date
-  final purchaseDateStart =
-      DateTime(purchase.createdAt.year, purchase.createdAt.month, purchase.createdAt.day);
-  final purchaseDateEnd =
-      purchaseDateStart.add(const Duration(days: 1));
+  final purchaseDateStart = DateTime(
+    purchase.createdAt.year,
+    purchase.createdAt.month,
+    purchase.createdAt.day,
+  );
+  final purchaseDateEnd = purchaseDateStart.add(const Duration(days: 1));
 
   final sameDayPurchases = purchases
-      .where((p) =>
-          p.type == 'purchase' &&
-          p.createdAt.isAfter(purchaseDateStart) &&
-          p.createdAt.isBefore(purchaseDateEnd))
+      .where(
+        (p) =>
+            p.type == 'purchase' &&
+            p.createdAt.isAfter(purchaseDateStart) &&
+            p.createdAt.isBefore(purchaseDateEnd),
+      )
       .toList();
 
   // Sort by creation time
@@ -63,26 +74,70 @@ final purchasesAndPaymentsProvider =
     FutureProvider.autoDispose<List<PurchaseOrPayment>>((ref) async {
       final db = ref.watch(dbProvider);
       final dateFilter = ref.watch(purchaseDateFilterProvider);
-      
+      final dateRangeFilter = ref.watch(purchaseDateRangeFilterProvider);
+      final supplierQuery = ref
+          .watch(purchaseSupplierSearchProvider)
+          .trim()
+          .toLowerCase();
+
       var result = await db.getAllPurchasesAndPayments(limit: 100);
 
       // Filter by date if selected
-      if (dateFilter != null) {
-        final filterStart =
-            DateTime(dateFilter.year, dateFilter.month, dateFilter.day);
-        final filterEnd = filterStart.add(const Duration(days: 1));
+      final filterRange =
+          dateRangeFilter ??
+          (dateFilter != null
+              ? DateTimeRange(
+                  start: DateTime(
+                    dateFilter.year,
+                    dateFilter.month,
+                    dateFilter.day,
+                  ),
+                  end: DateTime(
+                    dateFilter.year,
+                    dateFilter.month,
+                    dateFilter.day,
+                  ).add(const Duration(days: 1)),
+                )
+              : null);
+
+      if (filterRange != null) {
+        final filterStart = DateTime(
+          filterRange.start.year,
+          filterRange.start.month,
+          filterRange.start.day,
+        );
+        final filterEnd = DateTime(
+          filterRange.end.year,
+          filterRange.end.month,
+          filterRange.end.day,
+        ).add(const Duration(days: 1));
 
         result = result
-            .where((item) =>
-                item.createdAt.isAfter(filterStart) &&
-                item.createdAt.isBefore(filterEnd))
+            .where(
+              (item) =>
+                  item.createdAt.isAfter(filterStart) &&
+                  item.createdAt.isBefore(filterEnd),
+            )
             .toList();
+      }
+
+      // Filter by supplier name if selected
+      if (supplierQuery.isNotEmpty) {
+        result = result.where((item) {
+          final supplierName = item.supplierName?.toLowerCase() ?? '';
+          final supplierId = item.supplierId?.toLowerCase() ?? '';
+          return supplierName.contains(supplierQuery) ||
+              supplierId.contains(supplierQuery);
+        }).toList();
       }
 
       // Generate sequential invoice numbers for purchases
       return result.map((item) {
         if (item.type == 'purchase') {
-          final sequentialNumber = _generateSequentialInvoiceNumber(result, item);
+          final sequentialNumber = _generateSequentialInvoiceNumber(
+            result,
+            item,
+          );
           return PurchaseOrPayment(
             id: item.id,
             type: item.type,
@@ -148,8 +203,8 @@ final supplierTotalPaymentsProvider = FutureProvider.autoDispose
 
 typedef SupplierRequestsQuery = ({String supplierId, String? status});
 
-final supplierRequestsStatusFilterProvider =
-    StateProvider.family.autoDispose<String?, String>((ref, supplierId) {
+final supplierRequestsStatusFilterProvider = StateProvider.family
+    .autoDispose<String?, String>((ref, supplierId) {
       return null;
     });
 
@@ -165,8 +220,9 @@ final supplierRequestedProductsProvider = FutureProvider.autoDispose
       );
     });
 
-final missingProductsStatusFilterProvider =
-    StateProvider.autoDispose<String?>((ref) => 'open');
+final missingProductsStatusFilterProvider = StateProvider.autoDispose<String?>(
+  (ref) => 'open',
+);
 
 final missingProductsNotesProvider = FutureProvider.autoDispose
     .family<List<MissingProductNote>, String?>((ref, status) async {
