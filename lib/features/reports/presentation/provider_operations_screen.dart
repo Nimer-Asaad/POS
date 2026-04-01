@@ -71,34 +71,67 @@ class _ProviderOperationsScreenState
     }
   }
 
-  String _serviceProviderFromDescription(String? description) {
-    if (description == null || description.trim().isEmpty) return '';
+  String _normalizeProviderName(String raw) {
+    final normalized = raw.trim().toLowerCase();
+    switch (normalized) {
+      case 'تيلي لينك':
+      case 'tele link':
+        return 'telelink';
+      case 'المنصه':
+      case 'المنصة':
+        return 'platform';
+      case 'فرح نت':
+        return 'farahnet';
+      default:
+        return normalized;
+    }
+  }
 
-    final separatorIndex = description.lastIndexOf(' - ');
-    if (separatorIndex == -1) {
-      return description.trim().toLowerCase();
+  List<String> _descriptionSegments(String? description) {
+    if (description == null || description.trim().isEmpty) {
+      return const [];
     }
 
-    return description.substring(separatorIndex + 3).trim().toLowerCase();
+    // New records use `•`, older ones may still use ` - `.
+    final hasBullet = description.contains('•');
+    final rawParts = hasBullet
+        ? description.split('•')
+        : description.split(' - ');
+
+    return rawParts
+        .map(_normalizeProviderName)
+        .where((part) => part.isNotEmpty)
+        .toList();
+  }
+
+  bool _serviceHasProvider(UnifiedTransaction tx, String providerKey) {
+    final provider = _normalizeProviderName(providerKey);
+    final description = tx.description;
+    if (description == null || description.trim().isEmpty) return false;
+
+    final segments = _descriptionSegments(description);
+    if (segments.contains(provider)) return true;
+
+    // Fallback for free-form descriptions.
+    return _normalizeProviderName(description).contains(provider);
   }
 
   bool _matchesSelectedFilter(UnifiedTransaction tx) {
-    final serviceProvider = _serviceProviderFromDescription(tx.description);
-
     switch (_selectedFilter) {
       case ProviderOpsFilter.telelink:
         return tx.type == TransactionType.telelink ||
             (tx.type == TransactionType.service &&
-                serviceProvider == 'telelink');
+                _serviceHasProvider(tx, 'telelink'));
       case ProviderOpsFilter.platform:
         return tx.type == TransactionType.service &&
-            serviceProvider == 'platform';
+            _serviceHasProvider(tx, 'platform');
       case ProviderOpsFilter.farahnet:
         return tx.type == TransactionType.farahnet ||
             (tx.type == TransactionType.service &&
-                serviceProvider == 'farahnet');
+                _serviceHasProvider(tx, 'farahnet'));
       case ProviderOpsFilter.fawry:
-        return tx.type == TransactionType.service && serviceProvider == 'fawry';
+        return tx.type == TransactionType.service &&
+            _serviceHasProvider(tx, 'fawry');
       case ProviderOpsFilter.normalSales:
         return tx.type == TransactionType.sale;
     }
