@@ -31,6 +31,7 @@ import 'tables/repair_part_orders.dart';
 import 'tables/service_transactions.dart';
 import 'tables/cash_drawer_events.dart';
 import 'tables/service_daily_inventory.dart';
+import 'tables/side_revenue.dart';
 
 part 'app_database.g.dart';
 
@@ -114,6 +115,7 @@ LazyDatabase _openConnection({String? databaseDirectoryPath}) {
     ServiceTransactions,
     CashDrawerEvents,
     ServiceDailyInventory,
+    SideRevenue,
   ],
 )
 class AppDatabase extends _$AppDatabase {
@@ -122,7 +124,7 @@ class AppDatabase extends _$AppDatabase {
   AppDatabase.forTesting(super.e);
 
   @override
-  int get schemaVersion => 14;
+  int get schemaVersion => 16;
 
   @override
   MigrationStrategy get migration {
@@ -226,6 +228,15 @@ class AppDatabase extends _$AppDatabase {
           // Version 14: Add transaction reversal support (status and reversedAt)
           // Note: Column additions handled in beforeOpen to avoid duplicate column errors
         }
+        if (from < 15) {
+          // Version 15: Add side revenue tracking table
+          await m.createTable(sideRevenue);
+        }
+        if (from < 16) {
+          // Version 16: Add discount columns to purchases and purchase_payments
+          await m.addColumn(purchases, purchases.discount);
+          await m.addColumn(purchasePayments, purchasePayments.discount);
+        }
       },
       beforeOpen: (details) async {
         await customStatement('''
@@ -256,6 +267,36 @@ class AppDatabase extends _$AppDatabase {
         ''');
         await customStatement(
           'CREATE INDEX IF NOT EXISTS idx_missing_products_notes_status ON missing_products_notes(status, created_at)',
+        );
+
+        await customStatement('''
+          CREATE TABLE IF NOT EXISTS purchase_returns (
+            id TEXT PRIMARY KEY,
+            purchase_id TEXT NOT NULL,
+            supplier_id TEXT NOT NULL,
+            total INTEGER NOT NULL,
+            note TEXT,
+            created_at INTEGER NOT NULL
+          )
+        ''');
+        await customStatement(
+          'CREATE INDEX IF NOT EXISTS idx_purchase_returns_purchase ON purchase_returns(purchase_id, supplier_id, created_at)',
+        );
+        await customStatement('''
+          CREATE TABLE IF NOT EXISTS purchase_return_items (
+            id TEXT PRIMARY KEY,
+            purchase_return_id TEXT NOT NULL,
+            purchase_id TEXT NOT NULL,
+            purchase_item_id TEXT NOT NULL,
+            product_id TEXT NOT NULL,
+            qty INTEGER NOT NULL,
+            unit_cost INTEGER NOT NULL,
+            line_total INTEGER NOT NULL,
+            created_at INTEGER NOT NULL
+          )
+        ''');
+        await customStatement(
+          'CREATE INDEX IF NOT EXISTS idx_purchase_return_items_purchase ON purchase_return_items(purchase_id, purchase_item_id, created_at)',
         );
 
         // Ensure missing columns exist for legacy databases.
@@ -1044,6 +1085,20 @@ class AppDatabase extends _$AppDatabase {
     );
     productsProfit -= totalDiscounts;
 
+    final purchasesList = await (select(
+      purchases,
+    )..where((p) => p.createdAt.isBetweenValues(from, to))).get();
+    final purchasePaymentsList = await (select(
+      purchasePayments,
+    )..where((p) => p.createdAt.isBetweenValues(from, to))).get();
+    final totalPurchaseDiscounts =
+        purchasesList.fold<int>(0, (sum, purchase) => sum + purchase.discount) +
+        purchasePaymentsList.fold<int>(
+          0,
+          (sum, payment) => sum + payment.discount,
+        );
+    productsProfit += totalPurchaseDiscounts;
+
     final serviceRows =
         await (select(serviceTransactions)..where(
               (tbl) =>
@@ -1056,9 +1111,23 @@ class AppDatabase extends _$AppDatabase {
       (sum, tx) => sum + (tx.profitCents ?? 0),
     );
 
-    final totalProfit = productsProfit + servicesProfit;
+    final sideRevenueProfit = await getSideRevenueProfit(from, to);
+
+    final totalProfit = productsProfit + servicesProfit + sideRevenueProfit;
 
     return ProfitSummary(approximateProfit: totalProfit);
+  }
+
+  Future<int> getSideRevenueProfit(DateTime from, DateTime to) async {
+    final sideRevenueRows =
+        await (select(sideRevenue)..where(
+              (sr) =>
+                  sr.operatedAt.isBetweenValues(from, to) &
+                  sr.status.equals('normal'),
+            ))
+            .get();
+
+    return sideRevenueRows.fold<int>(0, (sum, row) => sum + row.amount);
   }
 
   Future<List<ServiceDailyInventoryData>> getDailyInventory(DateTime date) {
@@ -2193,6 +2262,10 @@ class AppDatabase extends _$AppDatabase {
               .get();
 
       final result = <PurchaseWithItems>[];
+      final returnedQuantitiesByPurchase =
+          await _getPurchaseReturnQuantitiesByPurchaseIds(
+            purchasesList.map((purchase) => purchase.id).toList(),
+          );
       for (final purchase in purchasesList) {
         final items = await (select(
           purchaseItems,
@@ -2211,7 +2284,12 @@ class AppDatabase extends _$AppDatabase {
         }
 
         result.add(
-          PurchaseWithItems(purchase: purchase, items: itemsWithProducts),
+          PurchaseWithItems(
+            purchase: purchase,
+            items: itemsWithProducts,
+            returnedQuantities:
+                returnedQuantitiesByPurchase[purchase.id] ?? const {},
+          ),
         );
       }
 
@@ -2245,14 +2323,19 @@ class AppDatabase extends _$AppDatabase {
     final purchases = await (select(
       this.purchases,
     )..where((tbl) => tbl.supplierId.equals(supplierId))).get();
+    final returnedTotalsByPurchase = await _getReturnedTotalsByPurchaseIds(
+      purchases.map((purchase) => purchase.id).toList(),
+    );
 
     int totalPurchased = 0;
     int totalPaid = 0;
     int totalItems = 0;
 
     for (final purchase in purchases) {
-      totalPurchased += purchase.total;
-      totalPaid += purchase.paid;
+      totalPurchased +=
+          purchase.total - (returnedTotalsByPurchase[purchase.id] ?? 0);
+      // Invoice-level discounts reduce supplier liability like cash payments.
+      totalPaid += purchase.paid + purchase.discount;
 
       final items = await (select(
         purchaseItems,
@@ -2269,7 +2352,20 @@ class AppDatabase extends _$AppDatabase {
             .get();
 
     for (final payment in generalPayments) {
-      totalPaid += payment.amount;
+      totalPaid += payment.amount + payment.discount;
+    }
+
+    // Purchase-linked payment discounts also reduce payable balance.
+    final linkedPayments =
+        await (select(purchasePayments)..where(
+              (tbl) =>
+                  tbl.supplierId.equals(supplierId) &
+                  tbl.purchaseId.isNotNull(),
+            ))
+            .get();
+
+    for (final payment in linkedPayments) {
+      totalPaid += payment.discount;
     }
 
     return SupplierSummary(
@@ -2289,6 +2385,7 @@ class AppDatabase extends _$AppDatabase {
     required String? invoiceNumber,
     required List<PurchaseItemInput> items,
     required int paid,
+    required int discount,
     DateTime? createdAt,
   }) async {
     final now = createdAt ?? DateTime.now();
@@ -2309,6 +2406,7 @@ class AppDatabase extends _$AppDatabase {
           invoiceNumber: Value(invoiceNumber),
           total: total,
           paid: paid,
+          discount: Value(discount),
           createdAt: now,
         ),
       );
@@ -2378,13 +2476,30 @@ class AppDatabase extends _$AppDatabase {
   }) async {
     final result = <PurchaseOrPayment>[];
 
+    final linkedPayments = await (select(
+      purchasePayments,
+    )..where((tbl) => tbl.purchaseId.isNotNull())).get();
+    final linkedDiscountByPurchaseId = <String, int>{};
+    for (final payment in linkedPayments) {
+      final linkedPurchaseId = payment.purchaseId;
+      if (linkedPurchaseId == null || payment.discount == 0) continue;
+      linkedDiscountByPurchaseId[linkedPurchaseId] =
+          (linkedDiscountByPurchaseId[linkedPurchaseId] ?? 0) +
+          payment.discount;
+    }
+
     // Get purchases
     final purchasesList = await getAllPurchases(limit: limit);
+    final returnedTotalsByPurchase = await _getReturnedTotalsByPurchaseIds(
+      purchasesList.map((purchase) => purchase.id).toList(),
+    );
     for (final purchase in purchasesList) {
       Supplier? supplier;
       if (purchase.supplierId != null) {
         supplier = await getSupplierById(purchase.supplierId!);
       }
+
+      final returnedTotal = returnedTotalsByPurchase[purchase.id] ?? 0;
 
       result.add(
         PurchaseOrPayment(
@@ -2393,8 +2508,11 @@ class AppDatabase extends _$AppDatabase {
           supplierId: purchase.supplierId,
           supplierName: supplier?.name,
           invoiceNumber: purchase.invoiceNumber,
-          total: purchase.total,
-          paid: purchase.paid,
+          total: purchase.total - returnedTotal,
+          paid:
+              purchase.paid +
+              purchase.discount +
+              (linkedDiscountByPurchaseId[purchase.id] ?? 0),
           createdAt: purchase.createdAt,
         ),
       );
@@ -2421,8 +2539,8 @@ class AppDatabase extends _$AppDatabase {
           type: 'payment',
           supplierId: payment.supplierId,
           supplierName: supplier?.name,
-          total: payment.amount,
-          paid: payment.amount, // Payment is always fully paid
+          total: payment.amount + payment.discount,
+          paid: payment.amount + payment.discount, // Payment + discount impact
           description: payment.description,
           createdAt: payment.createdAt,
         ),
@@ -2446,6 +2564,22 @@ class AppDatabase extends _$AppDatabase {
   ) async {
     final result = <PurchaseOrPayment>[];
 
+    final linkedPayments =
+        await (select(purchasePayments)..where(
+              (tbl) =>
+                  tbl.supplierId.equals(supplierId) &
+                  tbl.purchaseId.isNotNull(),
+            ))
+            .get();
+    final linkedDiscountByPurchaseId = <String, int>{};
+    for (final payment in linkedPayments) {
+      final linkedPurchaseId = payment.purchaseId;
+      if (linkedPurchaseId == null || payment.discount == 0) continue;
+      linkedDiscountByPurchaseId[linkedPurchaseId] =
+          (linkedDiscountByPurchaseId[linkedPurchaseId] ?? 0) +
+          payment.discount;
+    }
+
     // Get purchases for this supplier
     final purchasesList =
         await (select(purchases)
@@ -2457,10 +2591,14 @@ class AppDatabase extends _$AppDatabase {
                 ),
               ]))
             .get();
+    final returnedTotalsByPurchase = await _getReturnedTotalsByPurchaseIds(
+      purchasesList.map((purchase) => purchase.id).toList(),
+    );
 
     final supplier = await getSupplierById(supplierId);
 
     for (final purchase in purchasesList) {
+      final returnedTotal = returnedTotalsByPurchase[purchase.id] ?? 0;
       result.add(
         PurchaseOrPayment(
           id: purchase.id,
@@ -2468,8 +2606,11 @@ class AppDatabase extends _$AppDatabase {
           supplierId: purchase.supplierId,
           supplierName: supplier?.name,
           invoiceNumber: purchase.invoiceNumber,
-          total: purchase.total,
-          paid: purchase.paid,
+          total: purchase.total - returnedTotal,
+          paid:
+              purchase.paid +
+              purchase.discount +
+              (linkedDiscountByPurchaseId[purchase.id] ?? 0),
           createdAt: purchase.createdAt,
         ),
       );
@@ -2497,8 +2638,8 @@ class AppDatabase extends _$AppDatabase {
           type: 'payment',
           supplierId: payment.supplierId,
           supplierName: supplier?.name,
-          total: payment.amount,
-          paid: payment.amount, // Payment is always fully paid
+          total: payment.amount + payment.discount,
+          paid: payment.amount + payment.discount, // Payment + discount impact
           description: payment.description,
           createdAt: payment.createdAt,
         ),
@@ -2541,15 +2682,69 @@ class AppDatabase extends _$AppDatabase {
           ? await getSupplierById(purchase.supplierId!)
           : null;
 
+      final returnedQuantitiesByPurchase =
+          await _getPurchaseReturnQuantitiesByPurchaseIds([purchaseId]);
+
       return PurchaseWithItems(
         purchase: purchase,
         items: itemsWithProducts,
         supplier: supplier,
+        returnedQuantities:
+            returnedQuantitiesByPurchase[purchaseId] ?? const {},
       );
     } catch (e) {
       print('Error getting purchase details: $e');
       rethrow;
     }
+  }
+
+  Future<Map<String, Map<String, int>>>
+  _getPurchaseReturnQuantitiesByPurchaseIds(List<String> purchaseIds) async {
+    if (purchaseIds.isEmpty) {
+      return const {};
+    }
+
+    final placeholders = List.filled(purchaseIds.length, '?').join(', ');
+    final rows = await customSelect('''
+        SELECT purchase_id, purchase_item_id, COALESCE(SUM(qty), 0) AS returned_qty
+        FROM purchase_return_items
+        WHERE purchase_id IN ($placeholders)
+        GROUP BY purchase_id, purchase_item_id
+      ''', variables: purchaseIds.map(Variable.withString).toList()).get();
+
+    final result = <String, Map<String, int>>{};
+    for (final row in rows) {
+      final purchaseId = row.read<String>('purchase_id');
+      final purchaseItemId = row.read<String>('purchase_item_id');
+      final returnedQty = row.read<int>('returned_qty');
+      result.putIfAbsent(purchaseId, () => <String, int>{})[purchaseItemId] =
+          returnedQty;
+    }
+
+    return result;
+  }
+
+  Future<Map<String, int>> _getReturnedTotalsByPurchaseIds(
+    List<String> purchaseIds,
+  ) async {
+    if (purchaseIds.isEmpty) {
+      return const {};
+    }
+
+    final placeholders = List.filled(purchaseIds.length, '?').join(', ');
+    final rows = await customSelect('''
+        SELECT purchase_id, COALESCE(SUM(line_total), 0) AS returned_total
+        FROM purchase_return_items
+        WHERE purchase_id IN ($placeholders)
+        GROUP BY purchase_id
+      ''', variables: purchaseIds.map(Variable.withString).toList()).get();
+
+    final result = <String, int>{};
+    for (final row in rows) {
+      result[row.read<String>('purchase_id')] = row.read<int>('returned_total');
+    }
+
+    return result;
   }
 
   Future<void> updatePurchasePaid({
@@ -2559,6 +2754,177 @@ class AppDatabase extends _$AppDatabase {
     await (update(purchases)..where((tbl) => tbl.id.equals(purchaseId))).write(
       PurchasesCompanion(paid: Value(paid)),
     );
+  }
+
+  Future<String> createPurchaseReturn({
+    required String purchaseId,
+    required String supplierId,
+    required List<PurchaseReturnItemInput> items,
+    String? note,
+    DateTime? createdAt,
+  }) async {
+    if (items.isEmpty) {
+      throw ArgumentError('Purchase return must have at least one item');
+    }
+
+    final now = createdAt ?? DateTime.now();
+    final nowMs = now.millisecondsSinceEpoch;
+    final returnId = const Uuid().v4();
+
+    final purchase = await (select(
+      purchases,
+    )..where((tbl) => tbl.id.equals(purchaseId))).getSingleOrNull();
+
+    if (purchase == null) {
+      throw StateError('Purchase not found: $purchaseId');
+    }
+
+    if (purchase.supplierId == null || purchase.supplierId != supplierId) {
+      throw StateError('Supplier mismatch for purchase return');
+    }
+
+    final purchaseItems = await (select(
+      this.purchaseItems,
+    )..where((tbl) => tbl.purchaseId.equals(purchaseId))).get();
+    final purchaseItemsById = {for (final item in purchaseItems) item.id: item};
+
+    final alreadyReturnedByItem =
+        await _getPurchaseReturnQuantitiesByPurchaseIds([purchaseId]);
+    final returnedQuantities =
+        alreadyReturnedByItem[purchaseId] ?? const <String, int>{};
+
+    final requestedQtyByItemId = <String, int>{};
+    final requestedQtyByProductId = <String, int>{};
+    for (final item in items) {
+      if (item.qty <= 0) {
+        throw ArgumentError('Return quantity must be greater than zero');
+      }
+      requestedQtyByItemId[item.purchaseItemId] =
+          (requestedQtyByItemId[item.purchaseItemId] ?? 0) + item.qty;
+    }
+
+    final returnTotal = requestedQtyByItemId.entries.fold<int>(0, (sum, entry) {
+      final purchaseItem = purchaseItemsById[entry.key];
+      if (purchaseItem == null) {
+        throw StateError('Purchase item not found: ${entry.key}');
+      }
+      requestedQtyByProductId[purchaseItem.productId] =
+          (requestedQtyByProductId[purchaseItem.productId] ?? 0) + entry.value;
+      return sum + (purchaseItem.unitCost * entry.value);
+    });
+
+    await transaction(() async {
+      for (final entry in requestedQtyByItemId.entries) {
+        final purchaseItem = purchaseItemsById[entry.key];
+        if (purchaseItem == null) {
+          throw StateError('Purchase item not found: ${entry.key}');
+        }
+
+        final alreadyReturned = returnedQuantities[entry.key] ?? 0;
+        final availableForReturn = purchaseItem.qty - alreadyReturned;
+        if (entry.value > availableForReturn) {
+          throw StateError(
+            'Return quantity exceeds available quantity for item ${entry.key}',
+          );
+        }
+      }
+
+      for (final entry in requestedQtyByProductId.entries) {
+        final product = await (select(
+          products,
+        )..where((tbl) => tbl.id.equals(entry.key))).getSingleOrNull();
+
+        if (product == null) {
+          throw StateError('Product not found: ${entry.key}');
+        }
+
+        if (product.qty < entry.value) {
+          throw StateError(
+            'Insufficient stock for return on product ${product.name}',
+          );
+        }
+      }
+
+      await customInsert(
+        '''
+          INSERT INTO purchase_returns(
+            id,
+            purchase_id,
+            supplier_id,
+            total,
+            note,
+            created_at
+          ) VALUES (?, ?, ?, ?, ?, ?)
+        ''',
+        variables: [
+          Variable.withString(returnId),
+          Variable.withString(purchaseId),
+          Variable.withString(supplierId),
+          Variable.withInt(returnTotal),
+          Variable.withString(note?.trim() ?? ''),
+          Variable.withInt(nowMs),
+        ],
+        updates: {},
+      );
+
+      for (final entry in requestedQtyByItemId.entries) {
+        final purchaseItem = purchaseItemsById[entry.key]!;
+        final product =
+            await (select(products)
+                  ..where((tbl) => tbl.id.equals(purchaseItem.productId)))
+                .getSingleOrNull();
+        if (product == null) {
+          throw StateError('Product not found: ${purchaseItem.productId}');
+        }
+
+        final lineTotal = purchaseItem.unitCost * entry.value;
+
+        await (update(products)..where((tbl) => tbl.id.equals(product.id)))
+            .write(ProductsCompanion(qty: Value(product.qty - entry.value)));
+
+        await customInsert(
+          '''
+            INSERT INTO purchase_return_items(
+              id,
+              purchase_return_id,
+              purchase_id,
+              purchase_item_id,
+              product_id,
+              qty,
+              unit_cost,
+              line_total,
+              created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+          ''',
+          variables: [
+            Variable.withString(const Uuid().v4()),
+            Variable.withString(returnId),
+            Variable.withString(purchaseId),
+            Variable.withString(entry.key),
+            Variable.withString(purchaseItem.productId),
+            Variable.withInt(entry.value),
+            Variable.withInt(purchaseItem.unitCost),
+            Variable.withInt(lineTotal),
+            Variable.withInt(nowMs),
+          ],
+          updates: {},
+        );
+
+        await into(stockMovements).insert(
+          StockMovementsCompanion.insert(
+            id: const Uuid().v4(),
+            productId: purchaseItem.productId,
+            type: 'out',
+            qtyDelta: -entry.value,
+            reason: 'purchase_return',
+            refId: Value(returnId),
+            createdAt: now,
+          ),
+        );
+      }
+    });
+
+    return returnId;
   }
 
   Future<void> clearAllData() {
@@ -2609,6 +2975,7 @@ class AppDatabase extends _$AppDatabase {
     String? purchaseId, // Nullable for general supplier payments
     required String supplierId,
     required int amount,
+    required int discount,
     String? description,
     DateTime? paymentDate,
   }) async {
@@ -2623,6 +2990,7 @@ class AppDatabase extends _$AppDatabase {
           purchaseId: Value(purchaseId),
           supplierId: supplierId,
           amount: amount,
+          discount: Value(discount),
           description: Value(description),
           paymentDate: paymentDate ?? now,
           createdAt: now,
@@ -2662,6 +3030,7 @@ class AppDatabase extends _$AppDatabase {
               purchaseId: p.purchaseId,
               supplierId: p.supplierId,
               amount: p.amount,
+              discount: p.discount,
               description: p.description,
               paymentDate: p.paymentDate,
               createdAt: p.createdAt,
@@ -2692,6 +3061,7 @@ class AppDatabase extends _$AppDatabase {
               purchaseId: p.purchaseId,
               supplierId: p.supplierId,
               amount: p.amount,
+              discount: p.discount,
               description: p.description,
               paymentDate: p.paymentDate,
               createdAt: p.createdAt,
@@ -2710,7 +3080,10 @@ class AppDatabase extends _$AppDatabase {
       final result = await (select(
         purchasePayments,
       )..where((tbl) => tbl.supplierId.equals(supplierId))).get();
-      return result.fold<int>(0, (sum, payment) => sum + payment.amount);
+      return result.fold<int>(
+        0,
+        (sum, payment) => sum + payment.amount + payment.discount,
+      );
     } catch (e) {
       print('Error calculating total payments: $e');
       return 0;
@@ -3443,6 +3816,7 @@ class AppDatabase extends _$AppDatabase {
     int totalSalesBeforeDiscount = 0;
     int totalDiscounts = 0;
     int totalCostOfGoodsSold = 0;
+    int supplierDiscountProfit = 0;
 
     for (final sale in salesList) {
       totalSalesBeforeDiscount += sale.total + sale.discount;
@@ -3459,6 +3833,20 @@ class AppDatabase extends _$AppDatabase {
         final product = row.readTable(products);
         totalCostOfGoodsSold += product.costPrice * item.qty;
       }
+    }
+
+    final purchasesList = await (select(
+      purchases,
+    )..where((p) => p.createdAt.isBetweenValues(from, to))).get();
+    for (final purchase in purchasesList) {
+      supplierDiscountProfit += purchase.discount;
+    }
+
+    final purchasePaymentsList = await (select(
+      purchasePayments,
+    )..where((p) => p.createdAt.isBetweenValues(from, to))).get();
+    for (final payment in purchasePaymentsList) {
+      supplierDiscountProfit += payment.discount;
     }
 
     final netSalesRevenue = totalSalesBeforeDiscount - totalDiscounts;
@@ -3509,15 +3897,30 @@ class AppDatabase extends _$AppDatabase {
     int electricityProfit = 0;
     for (final op in electricityList) {
       electricityRevenue += op.amount;
-      electricityProfit += (op.amount * 0.015).round();
+      electricityProfit += (op.amount * 0.005).round();
+    }
+
+    // 5. Calculate side revenue (only normal, non-reversed transactions)
+    final sideRevenueList =
+        await (select(sideRevenue)..where(
+              (sr) =>
+                  sr.operatedAt.isBetweenValues(from, to) &
+                  sr.status.equals('normal'),
+            ))
+            .get();
+    int sideRevenueTotal = 0;
+    for (final sr in sideRevenueList) {
+      sideRevenueTotal += sr.amount;
     }
 
     final totalProfit =
         salesProfit +
+        supplierDiscountProfit +
         repairsProfit +
         servicesProfit +
         telelinkProfit +
-        electricityProfit;
+        electricityProfit +
+        sideRevenueTotal;
 
     return DetailedProfitBreakdown(
       // Sales breakdown
@@ -3532,13 +3935,16 @@ class AppDatabase extends _$AppDatabase {
       servicesProfit: servicesProfit,
       telelinkProfit: telelinkProfit,
       electricityProfit: electricityProfit,
+      sideRevenueProfit: sideRevenueTotal,
+      supplierDiscountProfit: supplierDiscountProfit,
 
       // Totals
       totalRevenue:
           netSalesRevenue +
           servicesRevenue +
           telelinkRevenue +
-          electricityRevenue,
+          electricityRevenue +
+          sideRevenueTotal,
       totalProfit: totalProfit,
     );
   }
@@ -3701,8 +4107,8 @@ class AppDatabase extends _$AppDatabase {
             .get();
 
     for (final electricity in electricityList) {
-      // Assume 1.5% profit margin for electricity
-      final profit = (electricity.amount * 0.015).round();
+      // Assume 0.5% profit margin for electricity
+      final profit = (electricity.amount * 0.005).round();
 
       allTransactions.add({
         'id': electricity.id,
@@ -3855,6 +4261,35 @@ class AppDatabase extends _$AppDatabase {
         'description': walletDescription,
         'status': wallet.status,
         'reversedAt': wallet.reversedAt,
+      });
+    }
+
+    // 9. Side Revenue
+    final sideRevenueList =
+        await (select(sideRevenue)
+              ..where((sr) => sr.operatedAt.isBetweenValues(from, to))
+              ..orderBy([
+                (sr) => OrderingTerm(
+                  expression: sr.operatedAt,
+                  mode: OrderingMode.desc,
+                ),
+              ]))
+            .get();
+
+    for (final sr in sideRevenueList) {
+      // 100% is profit for side revenue
+      final profit = sr.amount;
+
+      allTransactions.add({
+        'id': sr.id,
+        'type': 'siderevenue',
+        'createdAt': sr.operatedAt,
+        'amountCents': sr.amount,
+        'profitCents': profit,
+        'customerName': sr.customerName,
+        'description': '${sr.category} - ${sr.description}',
+        'status': sr.status,
+        'reversedAt': sr.reversedAt,
       });
     }
 
@@ -4238,6 +4673,8 @@ class DetailedProfitBreakdown {
   final int servicesProfit;
   final int telelinkProfit;
   final int electricityProfit;
+  final int sideRevenueProfit;
+  final int supplierDiscountProfit;
 
   // Totals
   final int totalRevenue;
@@ -4253,6 +4690,8 @@ class DetailedProfitBreakdown {
     required this.servicesProfit,
     required this.telelinkProfit,
     required this.electricityProfit,
+    required this.sideRevenueProfit,
+    required this.supplierDiscountProfit,
     required this.totalRevenue,
     required this.totalProfit,
   });
@@ -4383,6 +4822,16 @@ class PurchaseItemInput {
   });
 }
 
+class PurchaseReturnItemInput {
+  final String purchaseItemId;
+  final int qty;
+
+  const PurchaseReturnItemInput({
+    required this.purchaseItemId,
+    required this.qty,
+  });
+}
+
 class PurchaseItemWithProduct {
   final PurchaseItem item;
   final Product product;
@@ -4394,12 +4843,18 @@ class PurchaseWithItems {
   final Purchase purchase;
   final List<PurchaseItemWithProduct> items;
   final Supplier? supplier;
+  final Map<String, int> returnedQuantities;
 
   const PurchaseWithItems({
     required this.purchase,
     required this.items,
     this.supplier,
+    this.returnedQuantities = const {},
   });
+
+  int returnedQtyForItem(String purchaseItemId) {
+    return returnedQuantities[purchaseItemId] ?? 0;
+  }
 }
 
 class SupplierSummary {
@@ -4425,6 +4880,7 @@ class PurchasePaymentRecord {
   final String? purchaseId; // Nullable for general payments
   final String supplierId;
   final int amount;
+  final int discount;
   final String? description;
   final DateTime paymentDate;
   final DateTime createdAt;
@@ -4434,6 +4890,7 @@ class PurchasePaymentRecord {
     this.purchaseId,
     required this.supplierId,
     required this.amount,
+    required this.discount,
     this.description,
     required this.paymentDate,
     required this.createdAt,

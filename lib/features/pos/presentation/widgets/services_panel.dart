@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 import 'package:pos_store/core/formatting/money.dart';
 import 'package:pos_store/core/business_logic/service_profit_calculator.dart';
+import 'package:pos_store/data/db/app_database.dart';
 import 'package:pos_store/design/app_spacing.dart';
 import 'package:pos_store/providers/service_transactions_provider.dart';
 import 'package:pos_store/features/pos/presentation/widgets/telelink_form.dart';
@@ -170,7 +171,9 @@ class _ServicesPanelState extends ConsumerState<ServicesPanel> {
         amountCents: amount,
         profitCents: profitCents,
         notes: _notesController.text.isNotEmpty ? _notesController.text : null,
-        customerName: _customerNameController.text.isNotEmpty ? _customerNameController.text.trim() : null,
+        customerName: _customerNameController.text.isNotEmpty
+            ? _customerNameController.text.trim()
+            : null,
       );
 
       _amountController.clear();
@@ -201,7 +204,9 @@ class _ServicesPanelState extends ConsumerState<ServicesPanel> {
             category: _selectedCategory,
             provider: _selectedProvider,
             providerLabel: providerLabel,
-            customerName: _customerNameController.text.isNotEmpty ? _customerNameController.text.trim() : null,
+            customerName: _customerNameController.text.isNotEmpty
+                ? _customerNameController.text.trim()
+                : null,
             amountCents: amount,
             profitCents: profitCents,
             notes: _notesController.text.isNotEmpty
@@ -301,6 +306,8 @@ class _ServicesPanelState extends ConsumerState<ServicesPanel> {
   String _getServiceType() {
     if (_selectedProvider == 'electricity') {
       return 'electricity';
+    } else if (_selectedProvider == 'mada') {
+      return 'mada';
     } else if (_selectedProvider == 'platform') {
       return _platformType; // balance, bundle, roaming
     } else if (_selectedProvider == 'fawry') {
@@ -331,9 +338,11 @@ class _ServicesPanelState extends ConsumerState<ServicesPanel> {
       // Balance: 3.00% profit (same as Telelink)
       costPercentage = 0.97;
     } else if (serviceType == 'electricity') {
-      // Electricity: fixed fee + percentage
-      // For simplicity: estimate as 99% cost
-      costPercentage = 0.99;
+      // Electricity: about 0.5% profit
+      costPercentage = 0.995;
+    } else if (serviceType == 'mada') {
+      // Mada: about 0.5% profit
+      costPercentage = 0.995;
     } else if (serviceType == 'internet' || serviceType == 'bundle') {
       // Bundles for platform: 3.26% profit (same as Telelink)
       // Other bundle/internet providers keep near historical margin
@@ -370,6 +379,24 @@ class _ServicesPanelState extends ConsumerState<ServicesPanel> {
         subService: null,
       ),
     );
+  }
+
+  String _displayServiceType(ServiceTransaction tx) {
+    if (tx.provider == 'electricity') {
+      return 'electricity';
+    }
+    if (tx.provider == 'mada') {
+      return 'mada';
+    }
+    return tx.serviceType;
+  }
+
+  int _displayProfitCents(ServiceTransaction tx) {
+    if (tx.provider == 'electricity' || tx.provider == 'mada') {
+      return (tx.amountCents * 0.005).round();
+    }
+
+    return tx.profitCents ?? 0;
   }
 
   @override
@@ -589,11 +616,15 @@ class _ServicesPanelState extends ConsumerState<ServicesPanel> {
                         ),
                         ButtonSegment(
                           value: 'bundle',
-                          label: Text(_lang(context, 'حزم 3.26%', 'Bundles 3.26%')),
+                          label: Text(
+                            _lang(context, 'حزم 3.26%', 'Bundles 3.26%'),
+                          ),
                         ),
                         ButtonSegment(
                           value: 'roaming',
-                          label: Text(_lang(context, 'تجوال 4.39%', 'Roaming 4.39%')),
+                          label: Text(
+                            _lang(context, 'تجوال 4.39%', 'Roaming 4.39%'),
+                          ),
                         ),
                       ],
                       selected: {_platformType},
@@ -644,7 +675,7 @@ class _ServicesPanelState extends ConsumerState<ServicesPanel> {
                             ),
                           );
                         }
-                  },
+                      },
                 )
               else ...[
                 // Regular Input Fields (for non-Telelink providers)
@@ -928,12 +959,14 @@ class _ServicesPanelState extends ConsumerState<ServicesPanel> {
                       itemCount: transactions.length,
                       itemBuilder: (context, index) {
                         final tx = transactions[index];
+                        final displayedServiceType = _displayServiceType(tx);
+                        final displayedProfitCents = _displayProfitCents(tx);
                         final timeFormat = DateFormat('HH:mm');
                         return ListTile(
                           dense: true,
                           contentPadding: EdgeInsets.zero,
                           title: Text(
-                            tx.providerLabel ?? _getProviderLabel(tx.provider),
+                            '${tx.category} • $displayedServiceType • ${tx.providerLabel ?? _getProviderLabel(tx.provider)}',
                             style: Theme.of(context).textTheme.labelMedium,
                           ),
                           subtitle: Text(
@@ -955,10 +988,9 @@ class _ServicesPanelState extends ConsumerState<ServicesPanel> {
                               Row(
                                 mainAxisSize: MainAxisSize.min,
                                 children: [
-                                  if (tx.profitCents != null &&
-                                      tx.profitCents! > 0)
+                                  if (displayedProfitCents > 0)
                                     Text(
-                                      '(${formatMoneyCents(tx.profitCents!)}) ',
+                                      '(${formatMoneyCents(displayedProfitCents)}) ',
                                       style: Theme.of(context)
                                           .textTheme
                                           .labelSmall

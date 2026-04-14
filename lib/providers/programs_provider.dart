@@ -5,6 +5,7 @@ import 'package:pos_store/data/db/daos/telelink_operations_dao.dart';
 import 'package:pos_store/data/db/daos/farahnet_payments_dao.dart';
 import 'package:pos_store/data/db/daos/program_topups_dao.dart';
 import 'package:pos_store/data/db/daos/settlements_dao.dart';
+import 'package:pos_store/data/db/daos/side_revenue_dao.dart';
 import 'package:pos_store/providers/db_provider.dart';
 import 'package:pos_store/data/db/app_database.dart';
 
@@ -40,6 +41,11 @@ final programTopupsDaoProvider = Provider((ref) {
 final settlementsDaoProvider = Provider((ref) {
   final db = ref.watch(dbProvider);
   return SettlementsDao(db);
+});
+
+final sideRevenueDaoProvider = Provider((ref) {
+  final db = ref.watch(dbProvider);
+  return SideRevenueDao(db);
 });
 
 // ==================== ELECTRICITY RECHARGES ====================

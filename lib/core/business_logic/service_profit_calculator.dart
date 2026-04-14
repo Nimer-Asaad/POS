@@ -165,7 +165,7 @@ double getExpectedProfitPercent(String serviceType, String provider) {
   if (provider == 'farahnet') return 2.0;
   if (provider == 'fawry') return 1.5;
   if (provider == 'platform') return 3.0;
-  if (provider == 'electricity') return 1.5;
+  if (provider == 'electricity') return 0.5;
   if (provider == 'mada') return 0.5;
 
   return 2.0; // Default fallback

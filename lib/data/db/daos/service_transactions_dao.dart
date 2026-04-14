@@ -10,6 +10,40 @@ class ServiceTransactionsDao extends DatabaseAccessor<AppDatabase>
     with _$ServiceTransactionsDaoMixin {
   ServiceTransactionsDao(super.db);
 
+  int _fixedProfitCents({
+    required String provider,
+    required int amountCents,
+    required int? profitCents,
+  }) {
+    if (provider == 'electricity' || provider == 'mada') {
+      return (amountCents * 0.005).round();
+    }
+
+    return profitCents ?? 0;
+  }
+
+  ServiceTransaction _normalizeTransaction(ServiceTransaction transaction) {
+    final normalizedProfit = _fixedProfitCents(
+      provider: transaction.provider,
+      amountCents: transaction.amountCents,
+      profitCents: transaction.profitCents,
+    );
+
+    if (normalizedProfit == transaction.profitCents) {
+      return transaction;
+    }
+
+    return transaction.copyWith(
+      profitCents: Value(normalizedProfit),
+      finalProfitCents: normalizedProfit,
+      profitBaseCents: normalizedProfit,
+      profitPercent: transaction.amountCents > 0
+          ? (normalizedProfit.toDouble() / transaction.amountCents.toDouble()) *
+                100
+          : 0,
+    );
+  }
+
   Future<int> insertTransaction({
     required String category,
     required String provider,
@@ -22,6 +56,11 @@ class ServiceTransactionsDao extends DatabaseAccessor<AppDatabase>
   }) async {
     final id = const Uuid().v4();
     final now = DateTime.now();
+    final effectiveProfitCents = _fixedProfitCents(
+      provider: provider,
+      amountCents: amountCents,
+      profitCents: profitCents,
+    );
     String? resolvedCustomerId;
     String? resolvedCustomerPhone;
     final normalizedCustomerName = customerName?.trim();
@@ -60,7 +99,7 @@ class ServiceTransactionsDao extends DatabaseAccessor<AppDatabase>
           providerLabel: Value(providerLabel),
           customerName: Value(normalizedCustomerName),
           amountCents: Value(amountCents),
-          profitCents: Value(profitCents),
+          profitCents: Value(effectiveProfitCents),
           createdAt: Value(now),
           notes: Value(notes),
           saleId: Value(saleId),
@@ -93,7 +132,8 @@ class ServiceTransactionsDao extends DatabaseAccessor<AppDatabase>
     return (select(db.serviceTransactions)..orderBy([
           (t) => OrderingTerm(expression: t.createdAt, mode: OrderingMode.desc),
         ]))
-        .watch();
+        .watch()
+        .map((rows) => rows.map(_normalizeTransaction).toList());
   }
 
   Stream<List<ServiceTransaction>> watchTodayTransactions({int? limit}) {
@@ -127,7 +167,9 @@ class ServiceTransactionsDao extends DatabaseAccessor<AppDatabase>
       query = query..limit(limit);
     }
 
-    return query.watch();
+    return query.watch().map(
+      (rows) => rows.map(_normalizeTransaction).toList(),
+    );
   }
 
   Future<int> getTodayTotalByCategory(String category) async {

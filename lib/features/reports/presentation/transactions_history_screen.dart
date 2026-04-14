@@ -462,6 +462,20 @@ class _TransactionsHistoryScreenState
                   isDark: isDark,
                   valueColor: Colors.amber,
                 ),
+              if (breakdown.supplierDiscountProfit > 0)
+                _ProfitDetailRow(
+                  label: _lang('خصم الموردين', 'Supplier Discounts'),
+                  value: _formatCents(breakdown.supplierDiscountProfit),
+                  isDark: isDark,
+                  valueColor: Colors.green,
+                ),
+              if (breakdown.sideRevenueProfit > 0)
+                _ProfitDetailRow(
+                  label: _lang('الربح الجانبي', 'Side Revenue Profit'),
+                  value: _formatCents(breakdown.sideRevenueProfit),
+                  isDark: isDark,
+                  valueColor: Colors.cyan,
+                ),
 
               const SizedBox(height: AppSpacing.xs),
               const Divider(thickness: 2),

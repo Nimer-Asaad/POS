@@ -212,7 +212,9 @@ class DashboardScreen extends ConsumerWidget {
             _KpiCard(
               title: isRTL ? 'الأرباح الإجمالية' : 'Total Profit',
               value: '${data.totalProfit.toStringAsFixed(2)} ₪',
-              subtitle: isRTL ? 'مبيعات + صيانة' : 'Sales + Repair',
+              subtitle: isRTL
+                  ? 'مبيعات + خدمات + جانبي + صيانة'
+                  : 'Sales + Services + Side + Repair',
               icon: Icons.trending_up,
               gradient: AppColors.successGradient,
               isDark: isDark,

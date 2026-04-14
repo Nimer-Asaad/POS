@@ -243,6 +243,7 @@ final addPurchasePaymentProvider = FutureProvider.autoDispose
         purchaseId: purchaseId,
         supplierId: supplierId,
         amount: amount,
+        discount: 0,
         description: description,
       );
 

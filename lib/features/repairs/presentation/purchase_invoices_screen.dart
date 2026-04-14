@@ -956,6 +956,26 @@ class _PurchaseDetailsDialog extends ConsumerWidget {
       );
     }
 
+    Future<void> returnItems() async {
+      final wasReturned = await showDialog<bool>(
+        context: context,
+        builder: (dialogContext) =>
+            _PurchaseReturnDialog(purchaseWithItems: purchaseWithItems),
+      );
+
+      if (wasReturned == true) {
+        ref.invalidate(purchasesAndPaymentsProvider);
+        ref.invalidate(purchaseDetailsProvider(purchaseWithItems.purchase.id));
+
+        if (purchaseWithItems.purchase.supplierId != null) {
+          final supplierId = purchaseWithItems.purchase.supplierId!;
+          ref.invalidate(supplierSummaryProvider(supplierId));
+          ref.invalidate(supplierPurchasesAndPaymentsProvider(supplierId));
+          ref.invalidate(supplierPurchasesProvider(supplierId));
+        }
+      }
+    }
+
     return Dialog(
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(AppRadius.lg),
@@ -1108,6 +1128,9 @@ class _PurchaseDetailsDialog extends ConsumerWidget {
                             entry,
                           ) {
                             final item = entry.value;
+                            final returnedQty = purchaseWithItems
+                                .returnedQtyForItem(item.item.id);
+                            final remainingQty = item.item.qty - returnedQty;
                             return Container(
                               padding: const EdgeInsets.all(AppSpacing.sm),
                               decoration: BoxDecoration(
@@ -1163,10 +1186,29 @@ class _PurchaseDetailsDialog extends ConsumerWidget {
                                     ),
                                   ),
                                   Expanded(
-                                    child: Text(
-                                      '${item.item.qty}',
-                                      style: const TextStyle(fontSize: 12),
-                                      textAlign: TextAlign.right,
+                                    child: Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.end,
+                                      children: [
+                                        Text(
+                                          '${item.item.qty}',
+                                          style: const TextStyle(fontSize: 12),
+                                          textAlign: TextAlign.right,
+                                        ),
+                                        if (returnedQty > 0)
+                                          Text(
+                                            _lang(
+                                              context,
+                                              'مرتجع: $returnedQty | متبقي: $remainingQty',
+                                              'Returned: $returnedQty | Remaining: $remainingQty',
+                                            ),
+                                            style: TextStyle(
+                                              fontSize: 10,
+                                              color: Colors.grey.shade600,
+                                            ),
+                                            textAlign: TextAlign.right,
+                                          ),
+                                      ],
                                     ),
                                   ),
                                   Expanded(
@@ -1272,6 +1314,16 @@ class _PurchaseDetailsDialog extends ConsumerWidget {
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
                   ElevatedButton.icon(
+                    onPressed: returnItems,
+                    icon: const Icon(Icons.undo),
+                    label: Text(_lang(context, 'إرجاع', 'Return')),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.orange,
+                      foregroundColor: Colors.white,
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  ElevatedButton.icon(
                     onPressed: printPurchase,
                     icon: const Icon(Icons.print),
                     label: Text(_lang(context, 'طباعة', 'Print')),
@@ -1279,6 +1331,374 @@ class _PurchaseDetailsDialog extends ConsumerWidget {
                   ElevatedButton(
                     onPressed: () => Navigator.of(context).pop(),
                     child: Text(_lang(context, 'إغلاق', 'Close')),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _PurchaseReturnDialog extends ConsumerStatefulWidget {
+  final PurchaseWithItems purchaseWithItems;
+
+  const _PurchaseReturnDialog({required this.purchaseWithItems});
+
+  @override
+  ConsumerState<_PurchaseReturnDialog> createState() =>
+      _PurchaseReturnDialogState();
+}
+
+class _PurchaseReturnDialogState extends ConsumerState<_PurchaseReturnDialog> {
+  late final List<TextEditingController> _qtyControllers;
+  final TextEditingController _noteController = TextEditingController();
+  bool _isSaving = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _qtyControllers = widget.purchaseWithItems.items
+        .map((_) => TextEditingController(text: '0'))
+        .toList();
+  }
+
+  @override
+  void dispose() {
+    for (final controller in _qtyControllers) {
+      controller.dispose();
+    }
+    _noteController.dispose();
+    super.dispose();
+  }
+
+  int _parseQty(String value) {
+    final trimmed = value.trim();
+    if (trimmed.isEmpty) return 0;
+    return int.tryParse(trimmed) ?? 0;
+  }
+
+  int _returnedQtyForItem(PurchaseItemWithProduct item) {
+    return widget.purchaseWithItems.returnedQtyForItem(item.item.id);
+  }
+
+  int _availableQtyForItem(PurchaseItemWithProduct item) {
+    final available = item.item.qty - _returnedQtyForItem(item);
+    return available < 0 ? 0 : available;
+  }
+
+  Future<void> _save() async {
+    final purchase = widget.purchaseWithItems.purchase;
+    final supplierId = purchase.supplierId;
+
+    if (supplierId == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            _lang(
+              context,
+              'لا يمكن إرجاع الفاتورة بدون مورد مرتبط',
+              'Cannot return an invoice without a linked supplier',
+            ),
+          ),
+        ),
+      );
+      return;
+    }
+
+    final items = <PurchaseReturnItemInput>[];
+    for (
+      var index = 0;
+      index < widget.purchaseWithItems.items.length;
+      index++
+    ) {
+      final purchaseItem = widget.purchaseWithItems.items[index];
+      final requestedQty = _parseQty(_qtyControllers[index].text);
+      final availableQty = _availableQtyForItem(purchaseItem);
+
+      if (requestedQty < 0) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              _lang(
+                context,
+                'الكمية يجب أن تكون موجبة',
+                'Quantity must be positive',
+              ),
+            ),
+          ),
+        );
+        return;
+      }
+
+      if (requestedQty > availableQty) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              _lang(
+                context,
+                'لا يمكن إرجاع أكثر من الكمية المتبقية لكل صنف',
+                'You cannot return more than the remaining quantity for each item',
+              ),
+            ),
+          ),
+        );
+        return;
+      }
+
+      if (requestedQty > 0) {
+        items.add(
+          PurchaseReturnItemInput(
+            purchaseItemId: purchaseItem.item.id,
+            qty: requestedQty,
+          ),
+        );
+      }
+    }
+
+    if (items.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            _lang(
+              context,
+              'أدخل كمية إرجاع واحدة على الأقل',
+              'Enter at least one return quantity',
+            ),
+          ),
+        ),
+      );
+      return;
+    }
+
+    setState(() {
+      _isSaving = true;
+    });
+
+    try {
+      final db = ref.read(dbProvider);
+      await db.createPurchaseReturn(
+        purchaseId: purchase.id,
+        supplierId: supplierId,
+        items: items,
+        note: _noteController.text.trim().isEmpty
+            ? null
+            : _noteController.text.trim(),
+      );
+
+      if (!mounted) return;
+      Navigator.of(context).pop(true);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            _lang(
+              context,
+              'تم إرجاع القطع بنجاح',
+              'Items returned successfully',
+            ),
+          ),
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            _lang(context, 'فشل إرجاع القطع', 'Failed to return items'),
+          ),
+          backgroundColor: Colors.red,
+        ),
+      );
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isSaving = false;
+        });
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final items = widget.purchaseWithItems.items;
+
+    return Dialog(
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(AppRadius.lg),
+      ),
+      child: Container(
+        width: MediaQuery.of(context).size.width < 860
+            ? MediaQuery.of(context).size.width * 0.94
+            : 760,
+        constraints: BoxConstraints(
+          maxHeight: (MediaQuery.of(context).size.height * 0.88)
+              .clamp(420.0, 680.0)
+              .toDouble(),
+        ),
+        child: Column(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(AppSpacing.lg),
+              decoration: const BoxDecoration(
+                gradient: LinearGradient(
+                  colors: [AppColors.blue600, AppColors.blue700],
+                ),
+                borderRadius: BorderRadius.vertical(
+                  top: Radius.circular(AppRadius.lg),
+                ),
+              ),
+              child: Row(
+                children: [
+                  const Icon(Icons.undo, color: Colors.white),
+                  const SizedBox(width: AppSpacing.sm),
+                  Expanded(
+                    child: Text(
+                      _lang(context, 'إرجاع قطع من الفاتورة', 'Return Items'),
+                      style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                        color: Colors.white,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ),
+                  IconButton(
+                    onPressed: () => Navigator.of(context).pop(false),
+                    icon: const Icon(Icons.close, color: Colors.white),
+                  ),
+                ],
+              ),
+            ),
+            Expanded(
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.all(AppSpacing.lg),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Text(
+                      _lang(
+                        context,
+                        'أدخل الكمية المراد إرجاعها لكل صنف. سيتم خصمها من المخزون ورصيد المورد.',
+                        'Enter the quantity to return for each item. It will be deducted from stock and supplier balance.',
+                      ),
+                      style: Theme.of(context).textTheme.bodyMedium,
+                    ),
+                    const SizedBox(height: AppSpacing.md),
+                    TextField(
+                      controller: _noteController,
+                      decoration: InputDecoration(
+                        labelText: _lang(context, 'ملاحظة', 'Note'),
+                        border: const OutlineInputBorder(),
+                      ),
+                      minLines: 1,
+                      maxLines: 3,
+                    ),
+                    const SizedBox(height: AppSpacing.lg),
+                    ...items.asMap().entries.map((entry) {
+                      final item = entry.value;
+                      final returnedQty = _returnedQtyForItem(item);
+                      final availableQty = _availableQtyForItem(item);
+
+                      return Padding(
+                        padding: const EdgeInsets.only(bottom: AppSpacing.md),
+                        child: Container(
+                          padding: const EdgeInsets.all(AppSpacing.md),
+                          decoration: BoxDecoration(
+                            color: Theme.of(context).cardColor,
+                            borderRadius: BorderRadius.circular(AppRadius.md),
+                            border: Border.all(
+                              color: Colors.white.withOpacity(0.06),
+                            ),
+                            boxShadow: AppShadows.soft,
+                          ),
+                          child: Row(
+                            children: [
+                              Expanded(
+                                flex: 4,
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      item.product.name,
+                                      style: const TextStyle(
+                                        fontWeight: FontWeight.bold,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 4),
+                                    Text(
+                                      _lang(
+                                        context,
+                                        'المباع: ${item.item.qty} | المرتجع: $returnedQty | المتبقي: $availableQty',
+                                        'Purchased: ${item.item.qty} | Returned: $returnedQty | Available: $availableQty',
+                                      ),
+                                      style: TextStyle(
+                                        fontSize: 12,
+                                        color: Colors.grey.shade600,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              const SizedBox(width: AppSpacing.md),
+                              SizedBox(
+                                width: 120,
+                                child: TextField(
+                                  controller: _qtyControllers[entry.key],
+                                  keyboardType: TextInputType.number,
+                                  decoration: InputDecoration(
+                                    labelText: _lang(
+                                      context,
+                                      'الإرجاع',
+                                      'Return',
+                                    ),
+                                    border: const OutlineInputBorder(),
+                                    helperText: _lang(
+                                      context,
+                                      'الحد ${availableQty}',
+                                      'Max $availableQty',
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      );
+                    }),
+                  ],
+                ),
+              ),
+            ),
+            Container(
+              padding: const EdgeInsets.all(AppSpacing.md),
+              decoration: BoxDecoration(
+                color: Colors.grey.shade50,
+                borderRadius: const BorderRadius.vertical(
+                  bottom: Radius.circular(AppRadius.lg),
+                ),
+              ),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton(
+                      onPressed: _isSaving
+                          ? null
+                          : () => Navigator.of(context).pop(false),
+                      child: Text(_lang(context, 'إلغاء', 'Cancel')),
+                    ),
+                  ),
+                  const SizedBox(width: AppSpacing.md),
+                  Expanded(
+                    child: ElevatedButton(
+                      onPressed: _isSaving ? null : _save,
+                      child: _isSaving
+                          ? const SizedBox(
+                              width: 20,
+                              height: 20,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            )
+                          : Text(_lang(context, 'حفظ الإرجاع', 'Save Return')),
+                    ),
                   ),
                 ],
               ),
@@ -1666,6 +2086,7 @@ class _NewPurchaseDialog extends ConsumerStatefulWidget {
 class _NewPurchaseDialogState extends ConsumerState<_NewPurchaseDialog> {
   final _invoiceNumberController = TextEditingController();
   final _paidController = TextEditingController(text: '0');
+  final _discountController = TextEditingController(text: '0');
   String? _selectedSupplierId;
   final List<_PurchaseLineItem> _lineItems = [];
   bool _isSaving = false;
@@ -1674,6 +2095,7 @@ class _NewPurchaseDialogState extends ConsumerState<_NewPurchaseDialog> {
   void dispose() {
     _invoiceNumberController.dispose();
     _paidController.dispose();
+    _discountController.dispose();
     super.dispose();
   }
 
@@ -1743,6 +2165,7 @@ class _NewPurchaseDialogState extends ConsumerState<_NewPurchaseDialog> {
             : _invoiceNumberController.text,
         items: items,
         paid: _parseMoneyToIlsCents(_paidController.text),
+        discount: _parseMoneyToIlsCents(_discountController.text),
       );
 
       ref.invalidate(purchasesProvider);
@@ -1999,6 +2422,27 @@ class _NewPurchaseDialogState extends ConsumerState<_NewPurchaseDialog> {
                           Row(
                             children: [
                               Expanded(
+                                flex: 2,
+                                child: TextField(
+                                  controller: _discountController,
+                                  keyboardType:
+                                      const TextInputType.numberWithOptions(
+                                        decimal: true,
+                                      ),
+                                  decoration: InputDecoration(
+                                    labelText: _lang(
+                                      context,
+                                      'خصم الفاتورة',
+                                      'Invoice Discount',
+                                    ),
+                                    border: const OutlineInputBorder(),
+                                    suffixText: '₪',
+                                  ),
+                                  onChanged: (_) => setState(() {}),
+                                ),
+                              ),
+                              const SizedBox(width: AppSpacing.sm),
+                              Expanded(
                                 child: TextField(
                                   controller: _paidController,
                                   keyboardType:
@@ -2017,12 +2461,70 @@ class _NewPurchaseDialogState extends ConsumerState<_NewPurchaseDialog> {
                                   onChanged: (_) => setState(() {}),
                                 ),
                               ),
-                              const SizedBox(width: AppSpacing.sm),
+                            ],
+                          ),
+                          const SizedBox(height: 12),
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
                               Text(
-                                'متبقي: ${formatMoneyCents(total - paid)}',
+                                _lang(context, 'بعد الخصم', 'After Discount'),
                                 style: const TextStyle(
+                                  fontSize: 14,
+                                  color: Colors.white,
+                                ),
+                              ),
+                              Text(
+                                formatMoneyCents(
+                                  total -
+                                      _parseMoneyToIlsCents(
+                                        _discountController.text,
+                                      ),
+                                ),
+                                style: const TextStyle(
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.bold,
+                                  color: Colors.orange,
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 12),
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              Text(
+                                _lang(context, 'المتبقي', 'Remaining'),
+                                style: const TextStyle(
+                                  fontSize: 14,
                                   fontWeight: FontWeight.bold,
                                   color: Colors.white,
+                                ),
+                              ),
+                              Text(
+                                formatMoneyCents(
+                                  total -
+                                      _parseMoneyToIlsCents(
+                                        _discountController.text,
+                                      ) -
+                                      _parseMoneyToIlsCents(
+                                        _paidController.text,
+                                      ),
+                                ),
+                                style: TextStyle(
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.bold,
+                                  color:
+                                      (total -
+                                              _parseMoneyToIlsCents(
+                                                _discountController.text,
+                                              ) -
+                                              _parseMoneyToIlsCents(
+                                                _paidController.text,
+                                              )) >
+                                          0
+                                      ? Colors.red
+                                      : Colors.green,
                                 ),
                               ),
                             ],
@@ -2785,6 +3287,7 @@ class _AddGeneralPaymentDialog extends ConsumerStatefulWidget {
 class _AddGeneralPaymentDialogState
     extends ConsumerState<_AddGeneralPaymentDialog> {
   final _amountController = TextEditingController();
+  final _discountController = TextEditingController(text: '0');
   final _descriptionController = TextEditingController();
   String? _selectedSupplierId;
   bool _isLoading = false;
@@ -2792,6 +3295,7 @@ class _AddGeneralPaymentDialogState
   @override
   void dispose() {
     _amountController.dispose();
+    _discountController.dispose();
     _descriptionController.dispose();
     super.dispose();
   }
@@ -2889,6 +3393,31 @@ class _AddGeneralPaymentDialogState
             ),
             const SizedBox(height: AppSpacing.md),
 
+            // Discount Field
+            TextField(
+              controller: _discountController,
+              keyboardType: const TextInputType.numberWithOptions(
+                decimal: true,
+              ),
+              inputFormatters: [
+                FilteringTextInputFormatter.allow(RegExp(r'[0-9.,]')),
+              ],
+              decoration: InputDecoration(
+                labelText: _lang(context, 'الخصم', 'Discount'),
+                hintText: _lang(
+                  context,
+                  'أدخل الخصم (اختياري)',
+                  'Enter discount (optional)',
+                ),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(AppRadius.sm),
+                ),
+                prefixIcon: const Icon(Icons.local_offer),
+                suffixText: '₪',
+              ),
+            ),
+            const SizedBox(height: AppSpacing.md),
+
             // Description Field
             TextField(
               controller: _descriptionController,
@@ -2971,6 +3500,7 @@ class _AddGeneralPaymentDialogState
       await db.recordPurchasePayment(
         supplierId: _selectedSupplierId!,
         amount: amount,
+        discount: _parseMoneyToIlsCents(_discountController.text),
         description: _descriptionController.text.trim().isEmpty
             ? null
             : _descriptionController.text.trim(),

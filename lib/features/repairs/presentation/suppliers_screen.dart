@@ -546,6 +546,9 @@ class _SuppliersScreenState extends ConsumerState<SuppliersScreen> {
     final purchaseWithItems = await ref.read(
       purchaseDetailsProvider(purchaseId).future,
     );
+    final purchasePayments = await ref.read(
+      purchasePaymentsProvider(purchaseId).future,
+    );
 
     if (!mounted) return;
 
@@ -570,7 +573,16 @@ class _SuppliersScreenState extends ConsumerState<SuppliersScreen> {
       builder: (dialogContext) {
         final purchase = purchaseWithItems.purchase;
         final items = purchaseWithItems.items;
-        final remaining = purchase.total - purchase.paid;
+        final linkedPaymentDiscount = purchasePayments.fold<int>(
+          0,
+          (sum, payment) => sum + payment.discount,
+        );
+        final effectivePaid =
+            purchase.paid + purchase.discount + linkedPaymentDiscount;
+        final remaining = (purchase.total - effectivePaid).clamp(
+          0,
+          purchase.total,
+        );
 
         return AlertDialog(
           title: Text(
@@ -659,6 +671,50 @@ class _SuppliersScreenState extends ConsumerState<SuppliersScreen> {
                       ),
                     ],
                   ),
+                  if (purchase.discount > 0) ...[
+                    const SizedBox(height: 6),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Text(
+                          _lang(
+                            dialogContext,
+                            'خصم الفاتورة',
+                            'Invoice Discount',
+                          ),
+                        ),
+                        Text(
+                          '₪${(purchase.discount / 100).toStringAsFixed(2)}',
+                          style: TextStyle(
+                            fontWeight: FontWeight.bold,
+                            color: Colors.teal.shade700,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                  if (linkedPaymentDiscount > 0) ...[
+                    const SizedBox(height: 6),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Text(
+                          _lang(
+                            dialogContext,
+                            'خصم على الدفعات',
+                            'Payment Discounts',
+                          ),
+                        ),
+                        Text(
+                          '₪${(linkedPaymentDiscount / 100).toStringAsFixed(2)}',
+                          style: TextStyle(
+                            fontWeight: FontWeight.bold,
+                            color: Colors.teal.shade700,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
                   const SizedBox(height: 6),
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,

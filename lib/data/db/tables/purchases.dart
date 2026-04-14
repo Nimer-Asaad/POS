@@ -6,6 +6,7 @@ class Purchases extends Table {
   TextColumn get invoiceNumber => text().nullable()();
   IntColumn get total => integer()();
   IntColumn get paid => integer()();
+  IntColumn get discount => integer().withDefault(const Constant(0))();
   DateTimeColumn get createdAt => dateTime()();
 
   @override

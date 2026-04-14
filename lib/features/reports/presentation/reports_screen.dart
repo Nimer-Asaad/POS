@@ -47,6 +47,13 @@ final repairProfitProvider = FutureProvider.autoDispose
       return db.getRepairsProfit(range.from, range.to);
     });
 
+// Provider for side revenue profit in a time range
+final sideRevenueProfitProvider = FutureProvider.autoDispose
+    .family<int, ReportsRange>((ref, range) async {
+      final db = ref.watch(dbProvider);
+      return db.getSideRevenueProfit(range.from, range.to);
+    });
+
 // Provider for count of all devices in maintenance (not filtered by date)
 final allMaintenanceDevicesProvider = FutureProvider.autoDispose((ref) async {
   final db = ref.watch(dbProvider);
@@ -175,6 +182,7 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
     final profitSummaryAsync = ref.watch(profitSummaryProvider(range));
     final topPartsAsync = ref.watch(topPartsProvider(range));
     final repairProfitAsync = ref.watch(repairProfitProvider(range));
+    final sideRevenueProfitAsync = ref.watch(sideRevenueProfitProvider(range));
     final maintenanceDevicesAsync = ref.watch(allMaintenanceDevicesProvider);
     final withdrawnPartsCapitalAsync = ref.watch(
       withdrawnPartsCapitalProvider(range),
@@ -304,6 +312,31 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
                               context,
                               'أرباح الصيانة',
                               'Repair Profit',
+                            ),
+                            value: 'Error',
+                            icon: Icons.error_outline,
+                            iconColor: Colors.red,
+                            backgroundColor: Theme.of(context).cardColor,
+                          ),
+                        ),
+                        sideRevenueProfitAsync.when(
+                          data: (profit) => StatCard(
+                            title: _lang(
+                              context,
+                              'الربح الجانبي',
+                              'Side Revenue Profit',
+                            ),
+                            value: _formatCents(profit),
+                            icon: Icons.account_balance_wallet,
+                            iconColor: Colors.teal,
+                            backgroundColor: Theme.of(context).cardColor,
+                          ),
+                          loading: () => const SizedBox(),
+                          error: (error, stack) => StatCard(
+                            title: _lang(
+                              context,
+                              'الربح الجانبي',
+                              'Side Revenue Profit',
                             ),
                             value: 'Error',
                             icon: Icons.error_outline,

@@ -17,6 +17,7 @@ import '../../../core/ui/widgets/responsive_dialog.dart';
 import '../../dashboard/providers/dashboard_provider.dart';
 import 'widgets/pos_product_card.dart';
 import 'widgets/services_panel.dart';
+import 'widgets/side_revenue_form.dart';
 import 'widgets/product_details_dialog.dart';
 import '../../customers/presentation/add_customer_dialog.dart';
 import '../../../design/app_colors.dart';
@@ -137,7 +138,7 @@ class PosScreen extends ConsumerStatefulWidget {
   ConsumerState<PosScreen> createState() => _PosScreenState();
 }
 
-class _PosScreenState extends ConsumerState<PosScreen> {
+class _PosScreenState extends ConsumerState<PosScreen> with TickerProviderStateMixin {
   final TextEditingController _searchController = TextEditingController();
   final TextEditingController _discountController = TextEditingController(
     text: '0',
@@ -152,9 +153,17 @@ class _PosScreenState extends ConsumerState<PosScreen> {
   bool _isCheckingOut = false;
   String? _lastSaleId;
   final List<ServiceCartItem> _serviceItems = [];
+  late TabController _tabController;
+
+  @override
+  void initState() {
+    super.initState();
+    _tabController = TabController(length: 2, vsync: this);
+  }
 
   @override
   void dispose() {
+    _tabController.dispose();
     _searchController.dispose();
     _discountController.dispose();
     _paidController.dispose();
@@ -707,35 +716,56 @@ class _PosScreenState extends ConsumerState<PosScreen> {
   ) {
     return Column(
       children: [
-        // Services Panel
+        // Tab Bar for Services and Side Revenue
+        AppCard(
+          padding: EdgeInsets.zero,
+          child: TabBar(
+            controller: _tabController,
+            tabs: [
+              Tab(text: _lang(context, 'الخدمات', 'Services')),
+              Tab(text: _lang(context, 'ربح جانبي', 'Side Revenue')),
+            ],
+          ),
+        ),
+        const SizedBox(height: 12),
+
+        // Services Panel / Side Revenue Form
         SizedBox(
           height: _servicesPanelHeight(context),
-          child: ServicesPanel(
-            onAddServiceItem:
-                ({
-                  required category,
-                  required provider,
-                  required providerLabel,
-                  required amountCents,
-                  profitCents,
-                  notes,
-                  customerName,
-                }) {
-                  setState(() {
-                    _serviceItems.add(
-                      ServiceCartItem(
-                        id: DateTime.now().microsecondsSinceEpoch.toString(),
-                        category: category,
-                        provider: provider,
-                        providerLabel: providerLabel,
-                        amountCents: amountCents,
-                        profitCents: profitCents,
-                        notes: notes,
-                        customerName: customerName,
-                      ),
-                    );
-                  });
-                },
+          child: TabBarView(
+            controller: _tabController,
+            children: [
+              // Services tab
+              ServicesPanel(
+                onAddServiceItem:
+                    ({
+                      required category,
+                      required provider,
+                      required providerLabel,
+                      required amountCents,
+                      profitCents,
+                      notes,
+                      customerName,
+                    }) {
+                      setState(() {
+                        _serviceItems.add(
+                          ServiceCartItem(
+                            id: DateTime.now().microsecondsSinceEpoch.toString(),
+                            category: category,
+                            provider: provider,
+                            providerLabel: providerLabel,
+                            amountCents: amountCents,
+                            profitCents: profitCents,
+                            notes: notes,
+                            customerName: customerName,
+                          ),
+                        );
+                      });
+                    },
+              ),
+              // Side Revenue tab
+              SideRevenueForm(),
+            ],
           ),
         ),
         const SizedBox(height: 12),
