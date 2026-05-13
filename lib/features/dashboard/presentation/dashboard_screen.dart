@@ -213,8 +213,8 @@ class DashboardScreen extends ConsumerWidget {
               title: isRTL ? 'الأرباح الإجمالية' : 'Total Profit',
               value: '${data.totalProfit.toStringAsFixed(2)} ₪',
               subtitle: isRTL
-                  ? 'مبيعات + خدمات + جانبي + صيانة'
-                  : 'Sales + Services + Side + Repair',
+                  ? 'مبيعات + خدمات + تيلي لينك + كهرباء + صيانة'
+                  : 'Sales + Services + TeleLink + Electricity + Repairs',
               icon: Icons.trending_up,
               gradient: AppColors.successGradient,
               isDark: isDark,

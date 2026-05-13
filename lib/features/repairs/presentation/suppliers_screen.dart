@@ -568,6 +568,49 @@ class _SuppliersScreenState extends ConsumerState<SuppliersScreen> {
       return;
     }
 
+    Future<void> moveDiscountToPaid(Purchase purchase) async {
+      try {
+        final db = ref.read(dbProvider);
+        await db.movePurchaseDiscountToPaid(purchaseId: purchase.id);
+
+        ref.invalidate(purchaseDetailsProvider(purchase.id));
+        ref.invalidate(purchasePaymentsProvider(purchase.id));
+        ref.invalidate(purchasesProvider);
+        ref.invalidate(purchasesAndPaymentsProvider);
+
+        final supplierId = purchase.supplierId;
+        if (supplierId != null) {
+          ref.invalidate(supplierSummaryProvider(supplierId));
+          ref.invalidate(supplierPurchasesProvider(supplierId));
+          ref.invalidate(supplierPurchasesAndPaymentsProvider(supplierId));
+        }
+
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              _lang(
+                context,
+                'تم تحويل مبلغ الخصم إلى المدفوع بنجاح',
+                'Discount amount moved to paid successfully',
+              ),
+            ),
+            backgroundColor: Colors.green,
+          ),
+        );
+      } catch (e) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              '${_lang(context, 'تعذر تصحيح الفاتورة', 'Could not fix invoice')}: $e',
+            ),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
+
     await showDialog<void>(
       context: context,
       builder: (dialogContext) {
@@ -701,8 +744,8 @@ class _SuppliersScreenState extends ConsumerState<SuppliersScreen> {
                         Text(
                           _lang(
                             dialogContext,
-                            'خصم على الدفعات',
-                            'Payment Discounts',
+                            'خصم الشراء',
+                            'Purchase Discount',
                           ),
                         ),
                         Text(
@@ -736,6 +779,21 @@ class _SuppliersScreenState extends ConsumerState<SuppliersScreen> {
             ),
           ),
           actions: [
+            if (purchase.discount > 0)
+              TextButton.icon(
+                onPressed: () async {
+                  Navigator.of(dialogContext).pop();
+                  await moveDiscountToPaid(purchase);
+                },
+                icon: const Icon(Icons.swap_horiz),
+                label: Text(
+                  _lang(
+                    dialogContext,
+                    'تحويل الخصم إلى مدفوع',
+                    'Move discount to paid',
+                  ),
+                ),
+              ),
             TextButton(
               onPressed: () => Navigator.of(dialogContext).pop(),
               child: Text(_lang(dialogContext, 'إغلاق', 'Close')),

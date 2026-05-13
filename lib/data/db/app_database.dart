@@ -1054,68 +1054,8 @@ class AppDatabase extends _$AppDatabase {
   }
 
   Future<ProfitSummary> getProfitSummary(DateTime from, DateTime to) async {
-    final query =
-        select(saleItems).join([
-          innerJoin(sales, sales.id.equalsExp(saleItems.saleId)),
-          innerJoin(products, products.id.equalsExp(saleItems.productId)),
-        ])..where(
-          sales.createdAt.isBetweenValues(from, to) &
-              sales.status.equals('normal'),
-        );
-
-    final rows = await query.get();
-    var productsProfit = 0;
-    for (final row in rows) {
-      final item = row.readTable(saleItems);
-      final product = row.readTable(products);
-      productsProfit += (item.unitPrice - product.costPrice) * item.qty;
-    }
-
-    // Subtract all discounts from the profit
-    final salesList =
-        await (select(sales)..where(
-              (s) =>
-                  s.createdAt.isBetweenValues(from, to) &
-                  s.status.equals('normal'),
-            ))
-            .get();
-    final totalDiscounts = salesList.fold<int>(
-      0,
-      (sum, sale) => sum + sale.discount,
-    );
-    productsProfit -= totalDiscounts;
-
-    final purchasesList = await (select(
-      purchases,
-    )..where((p) => p.createdAt.isBetweenValues(from, to))).get();
-    final purchasePaymentsList = await (select(
-      purchasePayments,
-    )..where((p) => p.createdAt.isBetweenValues(from, to))).get();
-    final totalPurchaseDiscounts =
-        purchasesList.fold<int>(0, (sum, purchase) => sum + purchase.discount) +
-        purchasePaymentsList.fold<int>(
-          0,
-          (sum, payment) => sum + payment.discount,
-        );
-    productsProfit += totalPurchaseDiscounts;
-
-    final serviceRows =
-        await (select(serviceTransactions)..where(
-              (tbl) =>
-                  tbl.createdAt.isBetweenValues(from, to) &
-                  tbl.status.equals('normal'),
-            ))
-            .get();
-    final servicesProfit = serviceRows.fold<int>(
-      0,
-      (sum, tx) => sum + (tx.profitCents ?? 0),
-    );
-
-    final sideRevenueProfit = await getSideRevenueProfit(from, to);
-
-    final totalProfit = productsProfit + servicesProfit + sideRevenueProfit;
-
-    return ProfitSummary(approximateProfit: totalProfit);
+    final breakdown = await getDetailedProfitBreakdown(from, to);
+    return ProfitSummary(approximateProfit: breakdown.totalProfit);
   }
 
   Future<int> getSideRevenueProfit(DateTime from, DateTime to) async {
@@ -2756,6 +2696,36 @@ class AppDatabase extends _$AppDatabase {
     );
   }
 
+  /// Moves invoice-level discount into paid amount for a purchase.
+  ///
+  /// Useful when a payment was entered in the discount field by mistake.
+  Future<void> movePurchaseDiscountToPaid({required String purchaseId}) async {
+    await transaction(() async {
+      final purchase = await (select(
+        purchases,
+      )..where((tbl) => tbl.id.equals(purchaseId))).getSingleOrNull();
+
+      if (purchase == null) {
+        throw StateError('Purchase not found: $purchaseId');
+      }
+
+      if (purchase.discount <= 0) {
+        return;
+      }
+
+      final nextPaid = (purchase.paid + purchase.discount).clamp(
+        0,
+        purchase.total,
+      );
+
+      await (update(
+        purchases,
+      )..where((tbl) => tbl.id.equals(purchaseId))).write(
+        PurchasesCompanion(paid: Value(nextPaid), discount: const Value(0)),
+      );
+    });
+  }
+
   Future<String> createPurchaseReturn({
     required String purchaseId,
     required String supplierId,
@@ -3816,7 +3786,8 @@ class AppDatabase extends _$AppDatabase {
     int totalSalesBeforeDiscount = 0;
     int totalDiscounts = 0;
     int totalCostOfGoodsSold = 0;
-    int supplierDiscountProfit = 0;
+    int purchaseDiscountProfit = 0;
+    int paymentDiscountProfit = 0;
 
     for (final sale in salesList) {
       totalSalesBeforeDiscount += sale.total + sale.discount;
@@ -3835,18 +3806,19 @@ class AppDatabase extends _$AppDatabase {
       }
     }
 
+    // Supplier purchase/payment discounts are counted as profit impact.
     final purchasesList = await (select(
       purchases,
     )..where((p) => p.createdAt.isBetweenValues(from, to))).get();
     for (final purchase in purchasesList) {
-      supplierDiscountProfit += purchase.discount;
+      purchaseDiscountProfit += purchase.discount;
     }
 
     final purchasePaymentsList = await (select(
       purchasePayments,
     )..where((p) => p.createdAt.isBetweenValues(from, to))).get();
     for (final payment in purchasePaymentsList) {
-      supplierDiscountProfit += payment.discount;
+      paymentDiscountProfit += payment.discount;
     }
 
     final netSalesRevenue = totalSalesBeforeDiscount - totalDiscounts;
@@ -3915,12 +3887,11 @@ class AppDatabase extends _$AppDatabase {
 
     final totalProfit =
         salesProfit +
-        supplierDiscountProfit +
-        repairsProfit +
         servicesProfit +
         telelinkProfit +
         electricityProfit +
-        sideRevenueTotal;
+        purchaseDiscountProfit +
+        paymentDiscountProfit;
 
     return DetailedProfitBreakdown(
       // Sales breakdown
@@ -3936,7 +3907,8 @@ class AppDatabase extends _$AppDatabase {
       telelinkProfit: telelinkProfit,
       electricityProfit: electricityProfit,
       sideRevenueProfit: sideRevenueTotal,
-      supplierDiscountProfit: supplierDiscountProfit,
+      purchaseDiscountProfit: purchaseDiscountProfit,
+      paymentDiscountProfit: paymentDiscountProfit,
 
       // Totals
       totalRevenue:
@@ -3947,6 +3919,27 @@ class AppDatabase extends _$AppDatabase {
           sideRevenueTotal,
       totalProfit: totalProfit,
     );
+  }
+
+  /// Returns supplier discount impact within the period.
+  Future<int> getSupplierDiscountProfit(DateTime from, DateTime to) async {
+    final purchasesList = await (select(
+      purchases,
+    )..where((p) => p.createdAt.isBetweenValues(from, to))).get();
+
+    final purchasePaymentsList = await (select(
+      purchasePayments,
+    )..where((p) => p.createdAt.isBetweenValues(from, to))).get();
+
+    var totalDiscountProfit = 0;
+    for (final purchase in purchasesList) {
+      totalDiscountProfit += purchase.discount;
+    }
+    for (final payment in purchasePaymentsList) {
+      totalDiscountProfit += payment.discount;
+    }
+
+    return totalDiscountProfit;
   }
 
   /// Get all transactions for a specific date range
@@ -4539,6 +4532,302 @@ class AppDatabase extends _$AppDatabase {
     }
   }
 
+  /// Undo a previously reversed transaction by ID and type
+  /// Returns true if successful, false if not reversed or not found
+  Future<bool> undoReverseTransaction(
+    String transactionId,
+    String transactionType,
+  ) async {
+    final now = DateTime.now();
+
+    try {
+      return await transaction(() async {
+        switch (transactionType) {
+          case 'sale':
+            final sale = await (select(
+              sales,
+            )..where((s) => s.id.equals(transactionId))).getSingleOrNull();
+            if (sale == null || sale.status != 'reversed') return false;
+
+            final saleItemsList = await (select(
+              saleItems,
+            )..where((item) => item.saleId.equals(transactionId))).get();
+
+            final itemNames = <String>[];
+
+            for (final item in saleItemsList) {
+              final product = await (select(
+                products,
+              )..where((p) => p.id.equals(item.productId))).getSingleOrNull();
+
+              if (product == null) continue;
+
+              itemNames.add('${product.name} x${item.qty}');
+
+              await (update(products)
+                    ..where((p) => p.id.equals(item.productId)))
+                  .write(ProductsCompanion(qty: Value(product.qty - item.qty)));
+
+              await into(stockMovements).insert(
+                StockMovementsCompanion.insert(
+                  id: const Uuid().v4(),
+                  productId: item.productId,
+                  type: 'out',
+                  qtyDelta: -item.qty,
+                  reason: 'sale_reversal_undo',
+                  refId: Value(transactionId),
+                  createdAt: now,
+                ),
+              );
+            }
+
+            if (sale.customerId != null) {
+              final customer = await (select(
+                customers,
+              )..where((c) => c.id.equals(sale.customerId!))).getSingleOrNull();
+
+              if (customer != null) {
+                final balanceDelta = sale.total - sale.paid;
+                if (balanceDelta != 0) {
+                  await (update(
+                    customers,
+                  )..where((c) => c.id.equals(customer.id))).write(
+                    CustomersCompanion(
+                      balance: Value(customer.balance + balanceDelta),
+                    ),
+                  );
+                }
+
+                await (delete(debts)..where(
+                      (d) =>
+                          d.sourceType.equals('sale') &
+                          d.sourceId.equals(transactionId),
+                    ))
+                    .go();
+
+                if (balanceDelta > 0) {
+                  await into(debts).insert(
+                    DebtsCompanion.insert(
+                      id: const Uuid().v4(),
+                      customerId: Value(sale.customerId),
+                      customerName: customer.name,
+                      customerPhone: Value(customer.phone),
+                      sourceType: 'sale',
+                      sourceId: transactionId,
+                      amount: balanceDelta,
+                      note: Value(itemNames.join(', ')),
+                      createdAt: now,
+                    ),
+                  );
+                }
+              }
+            }
+
+            await (update(
+              sales,
+            )..where((s) => s.id.equals(transactionId))).write(
+              SalesCompanion(
+                status: const Value('normal'),
+                reversedAt: const Value(null),
+              ),
+            );
+            return true;
+
+          case 'repair':
+            final repair = await (select(
+              repairs,
+            )..where((r) => r.id.equals(transactionId))).getSingleOrNull();
+            if (repair == null || repair.transactionStatus != 'reversed') {
+              return false;
+            }
+
+            final parts = await (select(
+              repairParts,
+            )..where((part) => part.repairId.equals(transactionId))).get();
+
+            for (final part in parts) {
+              final product = await (select(
+                products,
+              )..where((p) => p.id.equals(part.productId))).getSingleOrNull();
+
+              if (product == null) continue;
+
+              await (update(products)
+                    ..where((p) => p.id.equals(part.productId)))
+                  .write(ProductsCompanion(qty: Value(product.qty - part.qty)));
+
+              await into(stockMovements).insert(
+                StockMovementsCompanion.insert(
+                  id: const Uuid().v4(),
+                  productId: part.productId,
+                  type: 'out',
+                  qtyDelta: -part.qty,
+                  reason: 'repair_reversal_undo',
+                  refId: Value(transactionId),
+                  createdAt: now,
+                ),
+              );
+            }
+
+            if (repair.customerId != null) {
+              final customer =
+                  await (select(customers)
+                        ..where((c) => c.id.equals(repair.customerId!)))
+                      .getSingleOrNull();
+
+              if (customer != null) {
+                final repairTotal = repair.finalCost - repair.discount;
+                final balanceDelta = repairTotal - repair.totalPaid;
+                if (balanceDelta != 0) {
+                  await (update(
+                    customers,
+                  )..where((c) => c.id.equals(customer.id))).write(
+                    CustomersCompanion(
+                      balance: Value(customer.balance + balanceDelta),
+                    ),
+                  );
+                }
+
+                await (delete(debts)..where(
+                      (d) =>
+                          d.sourceType.equals('repair') &
+                          d.sourceId.equals(transactionId),
+                    ))
+                    .go();
+
+                if (balanceDelta > 0) {
+                  await into(debts).insert(
+                    DebtsCompanion.insert(
+                      id: const Uuid().v4(),
+                      customerId: Value(repair.customerId),
+                      customerName: repair.customerName,
+                      customerPhone: Value(repair.customerPhone),
+                      sourceType: 'repair',
+                      sourceId: transactionId,
+                      amount: balanceDelta,
+                      dueDate: Value(null),
+                      note: Value(
+                        '${repair.device}${repair.model != null ? ' (${repair.model})' : ''}',
+                      ),
+                      createdAt: now,
+                    ),
+                  );
+                }
+              }
+            }
+
+            await (update(
+              repairs,
+            )..where((r) => r.id.equals(transactionId))).write(
+              RepairsCompanion(
+                transactionStatus: const Value('normal'),
+                reversedAt: const Value(null),
+              ),
+            );
+            return true;
+
+          case 'service':
+            final service = await (select(
+              serviceTransactions,
+            )..where((s) => s.id.equals(transactionId))).getSingleOrNull();
+            if (service == null || service.status != 'reversed') return false;
+            await (update(
+              serviceTransactions,
+            )..where((s) => s.id.equals(transactionId))).write(
+              ServiceTransactionsCompanion(
+                status: const Value('normal'),
+                reversedAt: const Value(null),
+              ),
+            );
+            return true;
+
+          case 'telelink':
+            final telelink = await (select(
+              telelinkOperations,
+            )..where((t) => t.id.equals(transactionId))).getSingleOrNull();
+            if (telelink == null || telelink.status != 'reversed') return false;
+            await (update(
+              telelinkOperations,
+            )..where((t) => t.id.equals(transactionId))).write(
+              TelelinkOperationsCompanion(
+                status: const Value('normal'),
+                reversedAt: const Value(null),
+              ),
+            );
+            return true;
+
+          case 'electricity':
+            final electricity = await (select(
+              electricityRecharges,
+            )..where((e) => e.id.equals(transactionId))).getSingleOrNull();
+            if (electricity == null || electricity.status != 'reversed') {
+              return false;
+            }
+            await (update(
+              electricityRecharges,
+            )..where((e) => e.id.equals(transactionId))).write(
+              ElectricityRechargesCompanion(
+                status: const Value('normal'),
+                reversedAt: const Value(null),
+              ),
+            );
+            return true;
+
+          case 'programTopup':
+            final topup = await (select(
+              programTopups,
+            )..where((p) => p.id.equals(transactionId))).getSingleOrNull();
+            if (topup == null || topup.status != 'reversed') return false;
+            await (update(
+              programTopups,
+            )..where((p) => p.id.equals(transactionId))).write(
+              ProgramTopupsCompanion(
+                status: const Value('normal'),
+                reversedAt: const Value(null),
+              ),
+            );
+            return true;
+
+          case 'farahnet':
+            final farahnet = await (select(
+              farahnetPayments,
+            )..where((f) => f.id.equals(transactionId))).getSingleOrNull();
+            if (farahnet == null || farahnet.status != 'reversed') return false;
+            await (update(
+              farahnetPayments,
+            )..where((f) => f.id.equals(transactionId))).write(
+              FarahnetPaymentsCompanion(
+                status: const Value('normal'),
+                reversedAt: const Value(null),
+              ),
+            );
+            return true;
+
+          case 'wallet':
+            final wallet = await (select(
+              walletOperations,
+            )..where((w) => w.id.equals(transactionId))).getSingleOrNull();
+            if (wallet == null || wallet.status != 'reversed') return false;
+            await (update(
+              walletOperations,
+            )..where((w) => w.id.equals(transactionId))).write(
+              WalletOperationsCompanion(
+                status: const Value('normal'),
+                reversedAt: const Value(null),
+              ),
+            );
+            return true;
+
+          default:
+            return false;
+        }
+      });
+    } catch (e) {
+      print('Error undoing transaction reversal: $e');
+      return false;
+    }
+  }
+
   /// Check if a transaction is already reversed
   Future<bool> isTransactionReversed(
     String transactionId,
@@ -4674,7 +4963,8 @@ class DetailedProfitBreakdown {
   final int telelinkProfit;
   final int electricityProfit;
   final int sideRevenueProfit;
-  final int supplierDiscountProfit;
+  final int purchaseDiscountProfit;
+  final int paymentDiscountProfit;
 
   // Totals
   final int totalRevenue;
@@ -4691,7 +4981,8 @@ class DetailedProfitBreakdown {
     required this.telelinkProfit,
     required this.electricityProfit,
     required this.sideRevenueProfit,
-    required this.supplierDiscountProfit,
+    required this.purchaseDiscountProfit,
+    required this.paymentDiscountProfit,
     required this.totalRevenue,
     required this.totalProfit,
   });

@@ -1,4 +1,5 @@
 import '../../../../core/supabase/supabase_client.dart';
+import '../../../../core/database/auto_sync_extension.dart';
 import '../../../../data/db/app_database.dart';
 import '../../domain/models/product_model.dart';
 import '../../domain/repositories/products_repository.dart';
@@ -127,6 +128,11 @@ class ProductsRepositoryImpl implements ProductsRepository {
 
   @override
   Future<ProductModel> create(ProductModel product) async {
+    if (_useLocalCache && _localDatabase != null) {
+      await _localDatabase!.addProductWithSync(product.toDriftCompanion());
+      return product;
+    }
+
     if (!_isOnline) {
       throw Exception('Cannot create product: offline mode');
     }
@@ -143,6 +149,11 @@ class ProductsRepositoryImpl implements ProductsRepository {
 
   @override
   Future<ProductModel> update(ProductModel product) async {
+    if (_useLocalCache && _localDatabase != null) {
+      await _localDatabase!.updateProductWithSync(product.toDrift());
+      return product;
+    }
+
     if (!_isOnline) {
       throw Exception('Cannot update product: offline mode');
     }
@@ -222,7 +233,7 @@ class ProductsRepositoryImpl implements ProductsRepository {
     if (_useLocalCache && _localDatabase != null) {
       return _watchAllFromLocal();
     }
-    
+
     if (_isOnline) {
       return _remoteDataSource.watchAll();
     } else {
@@ -238,7 +249,7 @@ class ProductsRepositoryImpl implements ProductsRepository {
     if (_useLocalCache && _localDatabase != null) {
       return _watchByIdFromLocal(id);
     }
-    
+
     if (_isOnline) {
       return _remoteDataSource.watchById(id);
     } else {

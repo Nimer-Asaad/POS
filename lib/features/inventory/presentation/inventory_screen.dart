@@ -30,10 +30,9 @@ final sortingTypeProvider = StateProvider<String>((ref) => 'none');
 final categoryFilterProvider = StateProvider<String>((ref) => '');
 
 // Price range filter provider
-final priceRangeProvider = StateProvider<({int min, int max})>((ref) => (
-  min: 0,
-  max: 999999999,
-));
+final priceRangeProvider = StateProvider<({int min, int max})>(
+  (ref) => (min: 0, max: 999999999),
+);
 
 // Products stream provider with enhanced smart search filter and sorting
 final filteredProductsStreamProvider =
@@ -49,48 +48,58 @@ final filteredProductsStreamProvider =
         final query = searchQuery.toLowerCase().trim();
         var filtered = products.where((p) {
           if (query.isEmpty) return true;
-          
+
           // Search in name
           if (p.name.toLowerCase().contains(query)) return true;
-          
+
           // Search in barcode
           if (p.barcode?.toLowerCase().contains(query) ?? false) return true;
-          
+
           // Search in category
           if (p.category.toLowerCase().contains(query)) return true;
-          
+
           // Search in sell price (formatted)
-          final sellPriceFormatted = formatMoneyCents(p.sellPrice).toLowerCase();
+          final sellPriceFormatted = formatMoneyCents(
+            p.sellPrice,
+          ).toLowerCase();
           if (sellPriceFormatted.contains(query)) return true;
-          
+
           // Search in sell price (raw number)
           final sellPriceRaw = (p.sellPrice / 100).toString();
           if (sellPriceRaw.contains(query)) return true;
-          
+
           // Search in cost price (formatted)
-          final costPriceFormatted = formatMoneyCents(p.costPrice).toLowerCase();
+          final costPriceFormatted = formatMoneyCents(
+            p.costPrice,
+          ).toLowerCase();
           if (costPriceFormatted.contains(query)) return true;
-          
+
           // Search in cost price (raw number)
           final costPriceRaw = (p.costPrice / 100).toString();
           if (costPriceRaw.contains(query)) return true;
-          
+
           // Search in quantity
           if (p.qty.toString().contains(query)) return true;
-          
+
           return false;
         }).toList();
 
         // Step 2: Apply category filter
         if (categoryFilter.isNotEmpty) {
           filtered = filtered
-              .where((p) => p.category.toLowerCase() == categoryFilter.toLowerCase())
+              .where(
+                (p) => p.category.toLowerCase() == categoryFilter.toLowerCase(),
+              )
               .toList();
         }
 
         // Step 3: Apply price range filter
         filtered = filtered
-            .where((p) => p.sellPrice >= priceRange.min && p.sellPrice <= priceRange.max)
+            .where(
+              (p) =>
+                  p.sellPrice >= priceRange.min &&
+                  p.sellPrice <= priceRange.max,
+            )
             .toList();
 
         // Step 4: Apply sorting
@@ -121,7 +130,6 @@ final filteredProductsStreamProvider =
         return filtered;
       });
     });
-
 
 class InventoryScreen extends ConsumerStatefulWidget {
   const InventoryScreen({super.key});
@@ -186,7 +194,8 @@ class _InventoryScreenState extends ConsumerState<InventoryScreen> {
     int productCount,
     int totalSellValueCents,
     int totalCostValueCents,
-  }) _calculateInventoryStats(List<ProductModel> products) {
+  })
+  _calculateInventoryStats(List<ProductModel> products) {
     final inStockProducts = products.where((p) => p.qty > 0);
     final categories = <String>{};
     var productCount = 0;
@@ -269,7 +278,7 @@ class _InventoryScreenState extends ConsumerState<InventoryScreen> {
     final currentSorting = ref.read(sortingTypeProvider);
     final currentCategory = ref.read(categoryFilterProvider);
     final currentPriceRange = ref.read(priceRangeProvider);
-    
+
     final minPriceController = TextEditingController(
       text: _centsToInput(currentPriceRange.min),
     );
@@ -303,10 +312,9 @@ class _InventoryScreenState extends ConsumerState<InventoryScreen> {
                       children: [
                         ElevatedButton(
                           style: ElevatedButton.styleFrom(
-                            backgroundColor:
-                                selectedSorting == 'name_asc'
-                                    ? AppColors.blue600
-                                    : Colors.grey[300],
+                            backgroundColor: selectedSorting == 'name_asc'
+                                ? AppColors.blue600
+                                : Colors.grey[300],
                           ),
                           onPressed: () {
                             setDialogState(() => selectedSorting = 'name_asc');
@@ -315,10 +323,9 @@ class _InventoryScreenState extends ConsumerState<InventoryScreen> {
                         ),
                         ElevatedButton(
                           style: ElevatedButton.styleFrom(
-                            backgroundColor:
-                                selectedSorting == 'name_desc'
-                                    ? AppColors.blue600
-                                    : Colors.grey[300],
+                            backgroundColor: selectedSorting == 'name_desc'
+                                ? AppColors.blue600
+                                : Colors.grey[300],
                           ),
                           onPressed: () {
                             setDialogState(() => selectedSorting = 'name_desc');
@@ -327,10 +334,9 @@ class _InventoryScreenState extends ConsumerState<InventoryScreen> {
                         ),
                         ElevatedButton(
                           style: ElevatedButton.styleFrom(
-                            backgroundColor:
-                                selectedSorting == 'none'
-                                    ? AppColors.blue600
-                                    : Colors.grey[300],
+                            backgroundColor: selectedSorting == 'none'
+                                ? AppColors.blue600
+                                : Colors.grey[300],
                           ),
                           onPressed: () {
                             setDialogState(() => selectedSorting = 'none');
@@ -352,10 +358,9 @@ class _InventoryScreenState extends ConsumerState<InventoryScreen> {
                       children: [
                         ElevatedButton(
                           style: ElevatedButton.styleFrom(
-                            backgroundColor:
-                                selectedSorting == 'price_asc'
-                                    ? AppColors.blue600
-                                    : Colors.grey[300],
+                            backgroundColor: selectedSorting == 'price_asc'
+                                ? AppColors.blue600
+                                : Colors.grey[300],
                           ),
                           onPressed: () {
                             setDialogState(() => selectedSorting = 'price_asc');
@@ -364,13 +369,14 @@ class _InventoryScreenState extends ConsumerState<InventoryScreen> {
                         ),
                         ElevatedButton(
                           style: ElevatedButton.styleFrom(
-                            backgroundColor:
-                                selectedSorting == 'price_desc'
-                                    ? AppColors.blue600
-                                    : Colors.grey[300],
+                            backgroundColor: selectedSorting == 'price_desc'
+                                ? AppColors.blue600
+                                : Colors.grey[300],
                           ),
                           onPressed: () {
-                            setDialogState(() => selectedSorting = 'price_desc');
+                            setDialogState(
+                              () => selectedSorting = 'price_desc',
+                            );
                           },
                           child: const Text('↓ High'),
                         ),
@@ -389,25 +395,27 @@ class _InventoryScreenState extends ConsumerState<InventoryScreen> {
                       children: [
                         ElevatedButton(
                           style: ElevatedButton.styleFrom(
-                            backgroundColor:
-                                selectedSorting == 'category_asc'
-                                    ? AppColors.blue600
-                                    : Colors.grey[300],
+                            backgroundColor: selectedSorting == 'category_asc'
+                                ? AppColors.blue600
+                                : Colors.grey[300],
                           ),
                           onPressed: () {
-                            setDialogState(() => selectedSorting = 'category_asc');
+                            setDialogState(
+                              () => selectedSorting = 'category_asc',
+                            );
                           },
                           child: const Text('أ → ي'),
                         ),
                         ElevatedButton(
                           style: ElevatedButton.styleFrom(
-                            backgroundColor:
-                                selectedSorting == 'category_desc'
-                                    ? AppColors.blue600
-                                    : Colors.grey[300],
+                            backgroundColor: selectedSorting == 'category_desc'
+                                ? AppColors.blue600
+                                : Colors.grey[300],
                           ),
                           onPressed: () {
-                            setDialogState(() => selectedSorting = 'category_desc');
+                            setDialogState(
+                              () => selectedSorting = 'category_desc',
+                            );
                           },
                           child: const Text('ي → أ'),
                         ),
@@ -422,7 +430,9 @@ class _InventoryScreenState extends ConsumerState<InventoryScreen> {
                     ),
                     const SizedBox(height: 8),
                     DropdownButton<String>(
-                      value: selectedCategory.isEmpty ? 'all' : selectedCategory,
+                      value: selectedCategory.isEmpty
+                          ? 'all'
+                          : selectedCategory,
                       isExpanded: true,
                       items: [
                         DropdownMenuItem(
@@ -430,15 +440,15 @@ class _InventoryScreenState extends ConsumerState<InventoryScreen> {
                           child: Text(_t(context, 'الكل', 'All')),
                         ),
                         ..._getCategoryOptions(context).map(
-                          (cat) => DropdownMenuItem(
-                            value: cat,
-                            child: Text(cat),
-                          ),
+                          (cat) =>
+                              DropdownMenuItem(value: cat, child: Text(cat)),
                         ),
                       ],
                       onChanged: (value) {
                         setDialogState(
-                          () => selectedCategory = (value == 'all') ? '' : (value ?? ''),
+                          () => selectedCategory = (value == 'all')
+                              ? ''
+                              : (value ?? ''),
                         );
                       },
                     ),
@@ -455,8 +465,7 @@ class _InventoryScreenState extends ConsumerState<InventoryScreen> {
                         Expanded(
                           child: TextField(
                             controller: minPriceController,
-                            keyboardType:
-                                const TextInputType.numberWithOptions(
+                            keyboardType: const TextInputType.numberWithOptions(
                               decimal: true,
                             ),
                             inputFormatters: [
@@ -474,8 +483,7 @@ class _InventoryScreenState extends ConsumerState<InventoryScreen> {
                         Expanded(
                           child: TextField(
                             controller: maxPriceController,
-                            keyboardType:
-                                const TextInputType.numberWithOptions(
+                            keyboardType: const TextInputType.numberWithOptions(
                               decimal: true,
                             ),
                             inputFormatters: [
@@ -832,13 +840,13 @@ class _InventoryScreenState extends ConsumerState<InventoryScreen> {
                           if (textEditingValue.text.isEmpty) {
                             return _getCategoryOptions(context);
                           }
-                          return _getCategoryOptions(context).where(
-                            (String option) {
-                              return option.toLowerCase().contains(
-                                textEditingValue.text.toLowerCase(),
-                              );
-                            },
-                          );
+                          return _getCategoryOptions(context).where((
+                            String option,
+                          ) {
+                            return option.toLowerCase().contains(
+                              textEditingValue.text.toLowerCase(),
+                            );
+                          });
                         },
                         onSelected: (String selection) {
                           categoryController.text = selection;
@@ -847,26 +855,33 @@ class _InventoryScreenState extends ConsumerState<InventoryScreen> {
                             setDialogState(() => trackImei = false);
                           }
                         },
-                        fieldViewBuilder: (context, controller, focusNode, onEditingComplete) {
-                          // Sync with our categoryController
-                          controller.text = categoryController.text;
-                          controller.addListener(() {
-                            categoryController.text = controller.text;
-                            if (controller.text.trim().toLowerCase() != 'phones' &&
-                                trackImei) {
-                              setDialogState(() => trackImei = false);
-                            }
-                          });
-                          
-                          return TextField(
-                            controller: controller,
-                            focusNode: focusNode,
-                            decoration: InputDecoration(
-                              labelText: l10n.category,
-                              suffixIcon: const Icon(Icons.arrow_drop_down),
-                            ),
-                          );
-                        },
+                        fieldViewBuilder:
+                            (
+                              context,
+                              controller,
+                              focusNode,
+                              onEditingComplete,
+                            ) {
+                              // Sync with our categoryController
+                              controller.text = categoryController.text;
+                              controller.addListener(() {
+                                categoryController.text = controller.text;
+                                if (controller.text.trim().toLowerCase() !=
+                                        'phones' &&
+                                    trackImei) {
+                                  setDialogState(() => trackImei = false);
+                                }
+                              });
+
+                              return TextField(
+                                controller: controller,
+                                focusNode: focusNode,
+                                decoration: InputDecoration(
+                                  labelText: l10n.category,
+                                  suffixIcon: const Icon(Icons.arrow_drop_down),
+                                ),
+                              );
+                            },
                       ),
                       const SizedBox(height: 12),
                       TextField(
@@ -1076,6 +1091,13 @@ class _InventoryScreenState extends ConsumerState<InventoryScreen> {
                           final qty = _parseInt(qtyController.text);
 
                           if (name.isEmpty || category.isEmpty) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(
+                                content: Text(
+                                  _t(context, 'فشل الحفظ', 'Save failed'),
+                                ),
+                              ),
+                            );
                             return;
                           }
 
@@ -1131,12 +1153,16 @@ class _InventoryScreenState extends ConsumerState<InventoryScreen> {
 
                             if (!mounted) return;
                             Navigator.of(context).pop();
-                          } catch (_) {
+                          } catch (e) {
                             if (mounted) {
                               ScaffoldMessenger.of(context).showSnackBar(
                                 SnackBar(
                                   content: Text(
-                                    _t(context, 'فشل الحفظ', 'Save failed'),
+                                    _t(
+                                      context,
+                                      'فشل الحفظ: $e',
+                                      'Save failed: $e',
+                                    ),
                                   ),
                                 ),
                               );
@@ -1527,7 +1553,11 @@ class _InventoryScreenState extends ConsumerState<InventoryScreen> {
                               Expanded(
                                 child: _buildSummaryTile(
                                   context: context,
-                                  title: _t(context, 'عدد الأصناف', 'Item Types'),
+                                  title: _t(
+                                    context,
+                                    'عدد الأصناف',
+                                    'Item Types',
+                                  ),
                                   value: stats.categoryCount.toString(),
                                   icon: Icons.category_outlined,
                                   color: AppColors.blue600,
@@ -1537,7 +1567,11 @@ class _InventoryScreenState extends ConsumerState<InventoryScreen> {
                               Expanded(
                                 child: _buildSummaryTile(
                                   context: context,
-                                  title: _t(context, 'عدد المنتجات', 'Products Count'),
+                                  title: _t(
+                                    context,
+                                    'عدد المنتجات',
+                                    'Products Count',
+                                  ),
                                   value: stats.productCount.toString(),
                                   icon: Icons.inventory_2_outlined,
                                   color: AppColors.green600,
@@ -1583,7 +1617,11 @@ class _InventoryScreenState extends ConsumerState<InventoryScreen> {
                           child: Center(child: CircularProgressIndicator()),
                         ),
                         error: (_, _) => Text(
-                          _t(context, 'تعذر تحميل الإحصائيات', 'Failed to load stats'),
+                          _t(
+                            context,
+                            'تعذر تحميل الإحصائيات',
+                            'Failed to load stats',
+                          ),
                         ),
                       ),
                     ),
@@ -1628,9 +1666,7 @@ class _InventoryScreenState extends ConsumerState<InventoryScreen> {
                           const SizedBox(width: 16),
                           ElevatedButton.icon(
                             icon: const Icon(Icons.filter_list),
-                            label: Text(
-                              _t(context, 'فلاتر', 'Filters'),
-                            ),
+                            label: Text(_t(context, 'فلاتر', 'Filters')),
                             onPressed: _showFilterDialog,
                           ),
                           const SizedBox(width: 8),
@@ -1760,20 +1796,20 @@ class _InventoryScreenState extends ConsumerState<InventoryScreen> {
                                             ),
                                             DataCell(
                                               Chip(
-                                                      label: Text(
-                                                        _localizedCategory(
-                                                          product.category,
-                                                          context,
-                                                        ),
-                                                      ),
-                                                      backgroundColor:
-                                                          Theme.of(context)
-                                                              .colorScheme
-                                                              .surfaceContainerHighest,
-                                                      labelStyle: const TextStyle(
-                                                        fontSize: 12,
-                                                      ),
-                                                    ),
+                                                label: Text(
+                                                  _localizedCategory(
+                                                    product.category,
+                                                    context,
+                                                  ),
+                                                ),
+                                                backgroundColor:
+                                                    Theme.of(context)
+                                                        .colorScheme
+                                                        .surfaceContainerHighest,
+                                                labelStyle: const TextStyle(
+                                                  fontSize: 12,
+                                                ),
+                                              ),
                                             ),
                                             DataCell(
                                               Text(
@@ -1834,7 +1870,8 @@ class _InventoryScreenState extends ConsumerState<InventoryScreen> {
                                                     onPressed: () async {
                                                       final isAuthorized =
                                                           await _verifyPasswordForOperation(
-                                                              'edit');
+                                                            'edit',
+                                                          );
                                                       if (isAuthorized) {
                                                         showProduct(
                                                           product: product,
@@ -1888,21 +1925,21 @@ class _InventoryScreenState extends ConsumerState<InventoryScreen> {
 
   String _localizedCategory(String? category, BuildContext context) {
     if (category == null || category.trim().isEmpty) return '-';
-    
+
     final isArabic = Localizations.localeOf(context).languageCode == 'ar';
-    
+
     // Check if it's one of our predefined categories
     for (final cat in _predefinedCategories) {
       final arName = cat['ar']!;
       final enName = cat['en']!;
-      
+
       // If the category matches either Arabic or English name
       if (category.toLowerCase() == arName.toLowerCase() ||
           category.toLowerCase() == enName.toLowerCase()) {
         return isArabic ? arName : enName;
       }
     }
-    
+
     // For backward compatibility with old categories
     final cat = category.toLowerCase();
     final l10n = AppLocalizations.of(context)!;

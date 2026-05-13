@@ -135,6 +135,80 @@ class _TransactionsHistoryScreenState
     }
   }
 
+  Future<void> _showUndoReverseConfirmation(
+    BuildContext context,
+    UnifiedTransaction transaction,
+  ) async {
+    final shouldUndo = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => Directionality(
+        textDirection: Directionality.of(context),
+        child: AlertDialog(
+          title: Text(_lang('إلغاء الاسترجاع', 'Undo Reversal')),
+          content: Text(
+            _lang(
+              'هل تريد إلغاء استرجاع هذه العملية؟ سيتم إعادة حالتها وحساباتها السابقة.',
+              'Do you want to undo this reversal? The transaction state and linked balances will be restored.',
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext, false),
+              child: Text(_lang('إلغاء', 'Cancel')),
+            ),
+            ElevatedButton(
+              onPressed: () => Navigator.pop(dialogContext, true),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.blue,
+                foregroundColor: Colors.white,
+              ),
+              child: Text(_lang('تأكيد', 'Confirm')),
+            ),
+          ],
+        ),
+      ),
+    );
+
+    if (shouldUndo == true) {
+      final db = ref.read(dbProvider);
+      final success = await db.undoReverseTransaction(
+        transaction.id,
+        transaction.type.name,
+      );
+
+      if (mounted) {
+        if (success) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(
+                _lang(
+                  'تم إلغاء الاسترجاع بنجاح',
+                  'Reversal undone successfully',
+                ),
+              ),
+              backgroundColor: Colors.green,
+            ),
+          );
+          ref.invalidate(transactionsHistoryProvider);
+          ref.invalidate(detailedProfitProvider);
+          ref.invalidate(dashboardDataProvider);
+          ref.invalidate(productsStreamProvider);
+          ref.invalidate(allProductsProvider);
+          ref.invalidate(dailyInventoryDataProvider);
+        } else {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(
+                _lang('فشل إلغاء الاسترجاع', 'Failed to undo reversal'),
+              ),
+              backgroundColor: Colors.red,
+            ),
+          );
+        }
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
@@ -462,13 +536,6 @@ class _TransactionsHistoryScreenState
                   isDark: isDark,
                   valueColor: Colors.amber,
                 ),
-              if (breakdown.supplierDiscountProfit > 0)
-                _ProfitDetailRow(
-                  label: _lang('خصم الموردين', 'Supplier Discounts'),
-                  value: _formatCents(breakdown.supplierDiscountProfit),
-                  isDark: isDark,
-                  valueColor: Colors.green,
-                ),
               if (breakdown.sideRevenueProfit > 0)
                 _ProfitDetailRow(
                   label: _lang('الربح الجانبي', 'Side Revenue Profit'),
@@ -490,6 +557,45 @@ class _TransactionsHistoryScreenState
                 isLarge: true,
                 valueColor: AppColors.green600,
               ),
+
+              if (breakdown.purchaseDiscountProfit > 0 ||
+                  breakdown.paymentDiscountProfit > 0) ...[
+                const SizedBox(height: AppSpacing.xs),
+                const Divider(),
+                const SizedBox(height: AppSpacing.xs),
+                _ProfitDetailRow(
+                  label: _lang('ربح خصومات التجار', 'Supplier Discount Profit'),
+                  value: _formatCents(
+                    breakdown.purchaseDiscountProfit +
+                        breakdown.paymentDiscountProfit,
+                  ),
+                  isDark: isDark,
+                  isBold: true,
+                  valueColor: Colors.teal,
+                ),
+                if (breakdown.purchaseDiscountProfit > 0)
+                  _ProfitDetailRow(
+                    label: _lang(
+                      'خصم فواتير الشراء',
+                      'Purchase Invoice Discounts',
+                    ),
+                    value: _formatCents(breakdown.purchaseDiscountProfit),
+                    isDark: isDark,
+                    isSubitem: true,
+                    valueColor: Colors.teal,
+                  ),
+                if (breakdown.paymentDiscountProfit > 0)
+                  _ProfitDetailRow(
+                    label: _lang(
+                      'خصم دفعات المورد',
+                      'Supplier Payment Discounts',
+                    ),
+                    value: _formatCents(breakdown.paymentDiscountProfit),
+                    isDark: isDark,
+                    isSubitem: true,
+                    valueColor: Colors.teal,
+                  ),
+              ],
             ],
           ),
           loading: () => const Center(
@@ -573,6 +679,8 @@ class _TransactionsHistoryScreenState
           isDark: isDark,
           isRTL: isRTL,
           onReverse: () => _showReverseConfirmation(context, transaction),
+          onUndoReverse: () =>
+              _showUndoReverseConfirmation(context, transaction),
         );
       },
     );
@@ -645,12 +753,14 @@ class _TransactionCard extends StatelessWidget {
   final bool isDark;
   final bool isRTL;
   final VoidCallback onReverse;
+  final VoidCallback onUndoReverse;
 
   const _TransactionCard({
     required this.transaction,
     required this.isDark,
     required this.isRTL,
     required this.onReverse,
+    required this.onUndoReverse,
   });
 
   String _formatCents(int cents) => formatMoneyCents(cents);
@@ -775,7 +885,7 @@ class _TransactionCard extends StatelessWidget {
               ),
             ),
 
-            // Amount, Profit and Reverse Button
+            // Amount, Profit and action Button
             Column(
               crossAxisAlignment: CrossAxisAlignment.end,
               children: [
@@ -834,6 +944,23 @@ class _TransactionCard extends StatelessWidget {
                       ),
                       child: Text(
                         _lang('استرجاع', 'Reverse'),
+                        style: const TextStyle(fontSize: 12),
+                      ),
+                    ),
+                  ),
+                ] else ...[
+                  const SizedBox(height: 8),
+                  SizedBox(
+                    height: 32,
+                    child: OutlinedButton(
+                      onPressed: onUndoReverse,
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: Colors.blue,
+                        side: const BorderSide(color: Colors.blue),
+                        padding: const EdgeInsets.symmetric(horizontal: 12),
+                      ),
+                      child: Text(
+                        _lang('إلغاء الاسترجاع', 'Undo Reversal'),
                         style: const TextStyle(fontSize: 12),
                       ),
                     ),

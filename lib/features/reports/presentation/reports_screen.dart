@@ -54,6 +54,31 @@ final sideRevenueProfitProvider = FutureProvider.autoDispose
       return db.getSideRevenueProfit(range.from, range.to);
     });
 
+// Provider for all profits in a time range
+final allProfitsProvider = FutureProvider.autoDispose
+    .family<int, ReportsRange>((ref, range) async {
+      final db = ref.watch(dbProvider);
+      final allTransactions = await db.getAllTransactions(range.from, range.to);
+      final supplierDiscountProfit = await db.getSupplierDiscountProfit(
+        range.from,
+        range.to,
+      );
+
+      // Keep this aligned with TransactionsSummary.fromTransactions
+      // so totals in Reports and Transactions screens match exactly.
+      var totalProfit = 0;
+      for (final tx in allTransactions) {
+        final status = (tx['status'] as String?) ?? 'normal';
+        if (status == 'normal') {
+          totalProfit += (tx['profitCents'] as int?) ?? 0;
+        }
+      }
+
+      totalProfit += supplierDiscountProfit;
+
+      return totalProfit;
+    });
+
 // Provider for count of all devices in maintenance (not filtered by date)
 final allMaintenanceDevicesProvider = FutureProvider.autoDispose((ref) async {
   final db = ref.watch(dbProvider);
@@ -183,6 +208,7 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
     final topPartsAsync = ref.watch(topPartsProvider(range));
     final repairProfitAsync = ref.watch(repairProfitProvider(range));
     final sideRevenueProfitAsync = ref.watch(sideRevenueProfitProvider(range));
+    final allProfitsAsync = ref.watch(allProfitsProvider(range));
     final maintenanceDevicesAsync = ref.watch(allMaintenanceDevicesProvider);
     final withdrawnPartsCapitalAsync = ref.watch(
       withdrawnPartsCapitalProvider(range),
@@ -337,6 +363,48 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
                               context,
                               'الربح الجانبي',
                               'Side Revenue Profit',
+                            ),
+                            value: 'Error',
+                            icon: Icons.error_outline,
+                            iconColor: Colors.red,
+                            backgroundColor: Theme.of(context).cardColor,
+                          ),
+                        ),
+                        allProfitsAsync.when(
+                          data: (profit) => StatCard(
+                            title: _lang(context, 'جميع الأرباح', 'All Profits'),
+                            value: _formatCents(profit),
+                            icon: Icons.account_balance_wallet,
+                            iconColor: Colors.indigo,
+                            backgroundColor: Theme.of(context).cardColor,
+                          ),
+                          loading: () => const SizedBox(),
+                          error: (error, stack) => StatCard(
+                            title: _lang(context, 'جميع الأرباح', 'All Profits'),
+                            value: 'Error',
+                            icon: Icons.error_outline,
+                            iconColor: Colors.red,
+                            backgroundColor: Theme.of(context).cardColor,
+                          ),
+                        ),
+                        allProfitsAsync.when(
+                          data: (profit) => StatCard(
+                            title: _lang(
+                              context,
+                              'جميع الأرباح ÷ 3',
+                              'All Profits / 3',
+                            ),
+                            value: _formatCents((profit / 3).round()),
+                            icon: Icons.pie_chart_outline,
+                            iconColor: Colors.deepPurple,
+                            backgroundColor: Theme.of(context).cardColor,
+                          ),
+                          loading: () => const SizedBox(),
+                          error: (error, stack) => StatCard(
+                            title: _lang(
+                              context,
+                              'جميع الأرباح ÷ 3',
+                              'All Profits / 3',
                             ),
                             value: 'Error',
                             icon: Icons.error_outline,
