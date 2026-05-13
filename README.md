@@ -1,110 +1,112 @@
 # POS Store
 
-نظام نقاط بيع وإدارة متجر مبني بـ Flutter، ويعمل بأسلوب local-first مع دعم اختياري للمزامنة مع Supabase. التطبيق يدعم العربية والإنجليزية، ويستهدف شاشات أفقية مع واجهة مخصصة لإدارة المبيعات، المخزون، الصيانة، العملاء، التقارير، والعمليات الخدمية.
+A modern Flutter-based point-of-sale and repair management system for mobile shops and retail businesses.
 
-## نظرة عامة
+## Overview
 
-يعتمد المشروع على بنية واضحة تفصل بين الواجهة، مزودات الحالة، طبقة البيانات، وقاعدة البيانات المحلية. التطبيق يبدأ من [lib/main.dart](lib/main.dart) ويعرض واجهة رئيسية موحدة من [lib/app/app.dart](lib/app/app.dart).
+POS Store is designed with a local-first architecture and optional Supabase synchronization. It supports both Arabic and English, provides a responsive UI for horizontal mobile layouts, and covers sales, inventory, repairs, customers, reports, and operational workflows.
 
-## أهم المزايا
+The project follows a clear separation between the UI layer, state management, business logic, and the local database. The app starts from [lib/main.dart](lib/main.dart) and renders its primary shell from [lib/app/app.dart](lib/app/app.dart).
 
-- Dashboard مع مؤشرات يومية للمبيعات، الأرباح، الصيانة، والإيرادات الجانبية.
-- POS للبيع السريع مع سلة، خصومات، دفع، وطباعة.
-- إدارة المخزون مع البحث، الفئات، وتتبّع الكميات والتكلفة وسعر البيع.
-- شاشة العملاء مع السجل المالي والتاريخ الشرائي.
-- شاشة الفواتير للمبيعات وفواتير الشراء.
-- وحدة الصيانة مع الديون، الموردين، طلبات الموردين، وفواتير الشراء الخاصة بالصيانة.
-- التقارير مع سجل المعاملات، عمليات المزودات، وتقارير الأرباح.
-- إعدادات التطبيق للغة، الثيم، كلمة مرور إظهار التكلفة، ومجلد قاعدة البيانات.
-- دعم العمل دون اتصال، مع مزامنة اختيارية إلى Supabase عند توفر الإعدادات.
+## Key Features
 
-## الفيتشرز الرئيسية
+- Daily dashboard with sales, profit, repair, and side-income insights.
+- Fast POS workflow with cart management, discounts, payments, and receipt printing.
+- Inventory management with search, categories, quantity tracking, cost, and sale price.
+- Customer management with financial history and transaction records.
+- Sales and purchase invoices for operational tracking and review.
+- Repair module with debts, suppliers, supplier requests, and repair purchase invoices.
+- Reports for transactions, provider operations, and profit analytics.
+- Application settings for language, theme, database path, and cost-visibility protection.
+- Offline-first usage with optional Supabase synchronization when configured.
+
+## Main Modules
 
 ### Dashboard
 
-يوفر ملخصًا سريعًا للأداء اليومي، ويتضمن بطاقات KPIs وإجراءات سريعة للوصول إلى باقي أجزاء التطبيق. المصدر الأساسي: [lib/features/dashboard/presentation/dashboard_screen.dart](lib/features/dashboard/presentation/dashboard_screen.dart).
+Provides a quick operational summary with KPI cards and shortcut actions. Primary source: [lib/features/dashboard/presentation/dashboard_screen.dart](lib/features/dashboard/presentation/dashboard_screen.dart).
 
 ### POS
 
-واجهة البيع الرئيسية لإضافة المنتجات إلى السلة، تعديل الكميات، تطبيق الخصم، تسجيل المدفوعات، وطباعة الفاتورة. يدعم أيضًا خدمات/عمليات جانبية مرتبطة بالمبيعات. المصدر: [lib/features/pos/presentation/pos_screen.dart](lib/features/pos/presentation/pos_screen.dart).
+The main selling interface for adding products to the cart, adjusting quantities, applying discounts, recording payments, and printing invoices. Source: [lib/features/pos/presentation/pos_screen.dart](lib/features/pos/presentation/pos_screen.dart).
 
 ### Inventory
 
-إدارة المنتجات والمخزون مع إحصائيات الكميات والفئات والقيم المالية، بالإضافة إلى شاشة خاصة بالخدمات اليومية المرتبطة بالمخزون. المصادر: [lib/features/inventory/presentation/inventory_screen.dart](lib/features/inventory/presentation/inventory_screen.dart) و [lib/features/inventory/presentation/daily_services_inventory_screen.dart](lib/features/inventory/presentation/daily_services_inventory_screen.dart).
+Manages products and stock with counts, categories, and financial metrics, along with a dedicated screen for daily service-related inventory flows. Sources: [lib/features/inventory/presentation/inventory_screen.dart](lib/features/inventory/presentation/inventory_screen.dart) and [lib/features/inventory/presentation/daily_services_inventory_screen.dart](lib/features/inventory/presentation/daily_services_inventory_screen.dart).
 
 ### Customers
 
-إدارة العملاء، البحث، التفاصيل، السجل المالي، وتاريخ العمليات المرتبطة بكل عميل. المصدر: [lib/features/customers/presentation/customers_screen.dart](lib/features/customers/presentation/customers_screen.dart).
+Handles customer records, search, details, financial history, and related transactions. Source: [lib/features/customers/presentation/customers_screen.dart](lib/features/customers/presentation/customers_screen.dart).
 
 ### Invoices
 
-شاشات لفواتير المبيعات وفواتير الشراء. هذا الجزء مخصص لمراجعة العمليات المسجلة وتنظيمها. المصادر: [lib/features/invoices/presentation/sales_invoices_screen.dart](lib/features/invoices/presentation/sales_invoices_screen.dart) و [lib/features/invoices/presentation/purchase_invoices_screen.dart](lib/features/invoices/presentation/purchase_invoices_screen.dart).
+Includes screens for sales invoices and purchase invoices to review and organize recorded transactions. Sources: [lib/features/invoices/presentation/sales_invoices_screen.dart](lib/features/invoices/presentation/sales_invoices_screen.dart) and [lib/features/invoices/presentation/purchase_invoices_screen.dart](lib/features/invoices/presentation/purchase_invoices_screen.dart).
 
 ### Repairs
 
-وحدة الصيانة تشمل شاشة الإصلاحات، الديون، الموردين، طلبات الموردين، وفواتير الشراء الخاصة بقطع الصيانة. المصادر: [lib/features/repairs/presentation/repairs_screen.dart](lib/features/repairs/presentation/repairs_screen.dart)، [lib/features/repairs/presentation/debts_screen.dart](lib/features/repairs/presentation/debts_screen.dart)، [lib/features/repairs/presentation/suppliers_screen.dart](lib/features/repairs/presentation/suppliers_screen.dart)، [lib/features/repairs/presentation/supplier_requests_screen.dart](lib/features/repairs/presentation/supplier_requests_screen.dart)، و [lib/features/repairs/presentation/purchase_invoices_screen.dart](lib/features/repairs/presentation/purchase_invoices_screen.dart).
+Covers repair orders, debts, suppliers, supplier requests, and repair-related purchase invoices. Sources: [lib/features/repairs/presentation/repairs_screen.dart](lib/features/repairs/presentation/repairs_screen.dart), [lib/features/repairs/presentation/debts_screen.dart](lib/features/repairs/presentation/debts_screen.dart), [lib/features/repairs/presentation/suppliers_screen.dart](lib/features/repairs/presentation/suppliers_screen.dart), [lib/features/repairs/presentation/supplier_requests_screen.dart](lib/features/repairs/presentation/supplier_requests_screen.dart), and [lib/features/repairs/presentation/purchase_invoices_screen.dart](lib/features/repairs/presentation/purchase_invoices_screen.dart).
 
 ### Reports
 
-تقارير شاملة عن المبيعات والأرباح وسجل المعاملات وعمليات المزودات. المصادر: [lib/features/reports/presentation/reports_screen.dart](lib/features/reports/presentation/reports_screen.dart)، [lib/features/reports/presentation/transactions_history_screen.dart](lib/features/reports/presentation/transactions_history_screen.dart)، و [lib/features/reports/presentation/provider_operations_screen.dart](lib/features/reports/presentation/provider_operations_screen.dart).
+Provides business reporting for sales, profit, transaction history, and provider operations. Sources: [lib/features/reports/presentation/reports_screen.dart](lib/features/reports/presentation/reports_screen.dart), [lib/features/reports/presentation/transactions_history_screen.dart](lib/features/reports/presentation/transactions_history_screen.dart), and [lib/features/reports/presentation/provider_operations_screen.dart](lib/features/reports/presentation/provider_operations_screen.dart).
 
-### Programs and service transactions
+### Programs and Service Transactions
 
-المنظومة الخدمية الخاصة بعمليات مثل الكهرباء، الواليت، تلفنك، فارح نت، الشحنات/التسويات، وفتح درج النقدية. هذه الوحدة مبنية حول مزودات و DAO متعددة لتسجيل العمليات اليومية وتجميعها. البداية المنطقية: [lib/providers/programs_provider.dart](lib/providers/programs_provider.dart) و [lib/providers/service_transactions_provider.dart](lib/providers/service_transactions_provider.dart).
+Supports operational services such as electricity, wallet top-ups, telecom services, internet services, shipment settlements, and cash drawer openings. The logic is centered around [lib/providers/programs_provider.dart](lib/providers/programs_provider.dart) and [lib/providers/service_transactions_provider.dart](lib/providers/service_transactions_provider.dart).
 
 ### Settings
 
-إعدادات التطبيق تشمل اللغة، الثيم، مسار قاعدة البيانات المحلية، وكلمات مرور التحكم في إظهار التكلفة. المصدر: [lib/features/settings/presentation/settings_screen.dart](lib/features/settings/presentation/settings_screen.dart) و [lib/core/providers/settings_provider.dart](lib/core/providers/settings_provider.dart).
+Includes controls for language, theme, local database path, and password-protected cost visibility. Source: [lib/features/settings/presentation/settings_screen.dart](lib/features/settings/presentation/settings_screen.dart) and [lib/core/providers/settings_provider.dart](lib/core/providers/settings_provider.dart).
 
-## المعمارية
+## Architecture
 
-المشروع مبني على فصل واضح بين الطبقات:
+The codebase is organized into clear layers:
 
-- الواجهة في `lib/features/**/presentation`
-- الحالة والمنطق الوسيط في `lib/features/**/providers` و `lib/providers`
-- الوصول للبيانات عبر Drift و DAOs داخل `lib/data/db`
-- إعدادات عامة ومزامنة داخل `lib/core`
+- UI in `lib/features/**/presentation`
+- State and orchestration in `lib/features/**/providers` and `lib/providers`
+- Data access through Drift and DAOs in `lib/data/db`
+- Shared configuration and synchronization in `lib/core`
 
-يعتمد التطبيق على Riverpod لإدارة الحالة وحقن الاعتماديات، وعلى Drift كقاعدة بيانات محلية، وعلى Supabase كمصدر مزامنة اختياري.
+The application uses Riverpod for state management and dependency injection, Drift for local persistence, and Supabase as an optional cloud synchronization layer.
 
-## البيانات والمزامنة
+## Data & Sync
 
-يبدأ التطبيق بتهيئة البيئة من ملف `.env`، ثم يحاول تهيئة Supabase. إذا فشلت التهيئة، يستمر التطبيق بوضع local-only بدون إيقاف الواجهة.
+The app initializes its environment from a `.env` file and then attempts to configure Supabase. If initialization fails, it continues in local-only mode without interrupting the user experience.
 
-المزامنة التلقائية موجودة في [lib/core/database/auto_sync_extension.dart](lib/core/database/auto_sync_extension.dart) و [lib/core/sync/auto_sync_service.dart](lib/core/sync/auto_sync_service.dart)، وتغطي الكيانات الأساسية مثل المنتجات والعملاء والمبيعات والإصلاحات والموردين والمدفوعات والديون.
+Automatic synchronization is implemented in [lib/core/database/auto_sync_extension.dart](lib/core/database/auto_sync_extension.dart) and [lib/core/sync/auto_sync_service.dart](lib/core/sync/auto_sync_service.dart). It covers core entities such as products, customers, sales, repairs, suppliers, payments, and debts.
 
-## اللغات والواجهة
+## Language & UI
 
-- العربية والإنجليزية مدعومتان رسميًا.
-- التطبيق يحدد اتجاه النص والعبارات حسب اللغة.
-- الواجهة مضبوطة على الوضع الأفقي للأجهزة المحمولة.
-- الثيم يدعم الفاتح والداكن.
+- Arabic and English are officially supported.
+- Text direction and labels adapt automatically based on the selected language.
+- The interface is optimized for horizontal mobile layouts.
+- Both light and dark themes are available.
 
-## المتطلبات
+## Requirements
 
-- Flutter 3.11 أو أحدث.
-- Dart 3.11 أو أحدث.
-- ملف `.env` في جذر المشروع إذا أردت تشغيل Supabase.
+- Flutter 3.11 or later
+- Dart 3.11 or later
+- A `.env` file in the project root if Supabase is enabled
 
-## ملف البيئة
+## Environment File
 
-أضف ملف `.env` في جذر المشروع، وعرّف القيم التالية:
+Create a `.env` file in the project root and define the following values:
 
 ```env
 SUPABASE_URL=your_supabase_url
 SUPABASE_ANON_KEY=your_supabase_anon_key
 ```
 
-إذا لم يكن الملف موجودًا، سيعمل التطبيق محليًا فقط، لكن ميزات Supabase والمزامنة السحابية لن تكون متاحة.
+If the file is not present, the app will continue to run locally, but Supabase features and cloud synchronization will be unavailable.
 
-## التشغيل المحلي
+## Local Setup
 
 ```bash
 flutter pub get
 flutter run
 ```
 
-## أوامر مفيدة
+## Useful Commands
 
 ```bash
 flutter analyze
@@ -113,25 +115,33 @@ flutter pub run build_runner build --delete-conflicting-outputs
 flutter gen-l10n
 ```
 
-## هيكل المشروع
+## Project Structure
 
 ```text
 lib/
-	app/                 # التطبيق الرئيسي، الثيم، والـ shell navigation
-	core/                # إعدادات عامة، أدوات، مزامنة، قاعدة بيانات، UI مشتركة
-	data/                # Drift database و DAO والكيانات
-	design/              # الألوان، الظلال، والـ tokens البصرية
-	features/            # كل الفيتشرز الرئيسية حسب نطاق العمل
-	l10n/                # ملفات الترجمة
-	providers/           # مزودات Riverpod العامة
+	app/                 # App shell, theme, and navigation
+	core/                # Shared configuration, utilities, sync, database, common UI
+	data/                # Drift database, DAOs, and entities
+	design/              # Colors, shadows, and visual tokens
+	features/            # Main feature areas by business domain
+	l10n/                # Localization files
+	providers/           # Shared Riverpod providers
 ```
 
-## ملاحظات
+## Notes
 
-- التطبيق يحتوي على شاشات رئيسية متعددة داخل شريط تنقل موحد.
-- كثير من الشاشات تعتمد على بيانات مباشرة من قاعدة Drift، مع مزامنة اختيارية إلى Supabase.
-- بعض القيم الحساسة مثل إظهار التكلفة محمية بكلمة مرور محفوظة محليًا.
+- The app includes multiple primary screens inside a unified navigation shell.
+- Many screens rely directly on the Drift database, with optional synchronization to Supabase.
+- Sensitive values such as cost visibility are protected by a locally stored password.
 
-## الترخيص
+## Download Windows App
 
-لم يتم تحديد ترخيص حاليًا.
+[Download Latest Release](https://github.com/Nimer-Asaad/POS/releases/latest)
+
+## Developed by
+
+Nimer Asaad
+
+## License
+
+No license has been defined yet.
